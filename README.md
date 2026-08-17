@@ -128,3 +128,7 @@ workflow status --instance <id> [--json]
 cargo test        # 单元测试 + 集成测试
 cargo build --release
 ```
+
+## 许可证
+
+[MIT License](LICENSE)
