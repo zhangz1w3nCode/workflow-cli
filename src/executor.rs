@@ -26,7 +26,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
 
     if node.node_type == "end" {
         pf.state.status = Status::Completed;
-        pf.append_trace("completed", "工作流", "结束");
+        pf.append_trace("completed", "工作流", "", None);
         pf.mermaid = render_mermaid(&flow, &pf.state);
         pf.write(&inst_dir.join("process.md"))?;
         return Ok("工作流已完成".into());
@@ -53,7 +53,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
         Status::Executing
     };
     let invoke = pf.state.current_invoke.clone();
-    pf.append_trace("active", &node.data.label, &invoke);
+    pf.append_trace("active", &node.data.label, &invoke, None);
     pf.mermaid = render_mermaid(&flow, &pf.state);
     pf.write(&inst_dir.join("process.md"))?;
 
@@ -78,7 +78,7 @@ pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) ->
 
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
-    pf.append_trace("completed", &name, &invoke);
+    pf.append_trace("completed", &name, &invoke, None);
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }
@@ -113,7 +113,7 @@ pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Res
     artifact::write_error(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, reason)?;
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
-    pf.append_trace("failed", &name, &invoke);
+    pf.append_trace("failed", &name, &invoke, None);
 
     pf.state.retry_count += 1;
     if let Err(msg) = crate::limits::check_retry_limit(&pf.state) {
@@ -156,8 +156,8 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
     };
     artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, &detail)?;
     let name = pf.state.current_name.clone();
-    let detail = format!("分支: {}", branch);
-    pf.append_trace("completed", &name, &detail);
+    let invoke = pf.state.current_invoke.clone();
+    pf.append_trace("completed", &name, &invoke, Some(branch));
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }

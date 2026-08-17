@@ -67,7 +67,9 @@ pub struct ProcessState {
 pub struct TraceEvent {
     pub status: String,
     pub node: String,
-    pub detail: String,
+    pub invoke: String,
+    pub branch: Option<String>,
+    pub time: String,
 }
 
 pub struct ProcessFile {
@@ -121,19 +123,33 @@ impl ProcessFile {
         Ok(())
     }
 
-    pub fn append_trace(&mut self, status: &str, node: &str, detail: &str) {
-        self.trace.push(TraceEvent {
-            status: status.to_string(),
-            node: node.to_string(),
-            detail: detail.to_string(),
-        });
+    pub fn append_trace(&mut self, status: &str, node: &str, invoke: &str, branch: Option<&str>) {
+        if let Some(e) = self.trace.iter_mut().find(|e| e.node == node && e.invoke == invoke) {
+            e.status = status.to_string();
+            if branch.is_some() {
+                e.branch = branch.map(|s| s.to_string());
+            }
+        } else {
+            let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+            self.trace.push(TraceEvent {
+                status: status.to_string(),
+                node: node.to_string(),
+                invoke: invoke.to_string(),
+                branch: branch.map(|s| s.to_string()),
+                time,
+            });
+        }
     }
 }
 
 fn render_trace_table(trace: &[TraceEvent]) -> String {
-    let mut s = String::from("| # | 状态 | 节点 | 详情 |\n|---|------|------|------|\n");
+    let mut s = String::from("| # | 状态 | 节点 | 节点执行ID | 执行时间 |\n|---|------|------|-----------|---------|\n");
     for (i, e) in trace.iter().enumerate() {
-        s.push_str(&format!("| {} | {} | {} | {} |\n", i + 1, e.status, e.node, e.detail));
+        let node_display = match &e.branch {
+            Some(b) => format!("{}({})", e.node, b),
+            None => e.node.clone(),
+        };
+        s.push_str(&format!("| {} | {} | {} | {} | {} |\n", i + 1, e.status, node_display, e.invoke, e.time));
     }
     s
 }
@@ -146,20 +162,34 @@ fn parse_trace_table(text: &str) -> Vec<TraceEvent> {
             continue;
         }
         let cells: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-        if cells.len() < 5 {
+        if cells.len() < 6 {
             continue;
         }
         let num = cells[1];
         if num.is_empty() || num == "#" || num.starts_with('-') {
             continue;
         }
+        let (node, branch) = parse_node_cell(cells[3]);
         events.push(TraceEvent {
             status: cells[2].to_string(),
-            node: cells[3].to_string(),
-            detail: cells[4].to_string(),
+            node,
+            invoke: cells[4].to_string(),
+            branch,
+            time: cells[5].to_string(),
         });
     }
     events
+}
+
+fn parse_node_cell(cell: &str) -> (String, Option<String>) {
+    if let Some(open) = cell.find('(') {
+        if cell.ends_with(')') {
+            let node = cell[..open].to_string();
+            let branch = cell[open + 1..cell.len() - 1].to_string();
+            return (node, Some(branch));
+        }
+    }
+    (cell.to_string(), None)
 }
 
 #[cfg(test)]
@@ -190,7 +220,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("process.md");
         let mut pf = ProcessFile { state: sample_state(), mermaid: "```mermaid\nflowchart TD\n```".into(), trace: Vec::new() };
-        pf.append_trace("completed", "任务理解", "invoke 1");
+        pf.append_trace("completed", "任务理解", "invoke-1", None);
         pf.write(&path).unwrap();
 
         let read = ProcessFile::read(&path).unwrap();
@@ -201,7 +231,7 @@ mod tests {
         assert_eq!(read.trace.len(), 1);
         assert_eq!(read.trace[0].status, "completed");
         assert_eq!(read.trace[0].node, "任务理解");
-        assert_eq!(read.trace[0].detail, "invoke 1");
+        assert_eq!(read.trace[0].invoke, "invoke-1");
     }
 
     #[test]
