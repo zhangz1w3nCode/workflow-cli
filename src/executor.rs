@@ -26,7 +26,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
 
     if node.node_type == "end" {
         pf.state.status = Status::Completed;
-        pf.append_trace("completed", "工作流", "", None);
+        pf.append_trace("completed", &node.data.label, "-", None);
         pf.mermaid = render_mermaid(&flow, &pf.state);
         pf.write(&inst_dir.join("process.md"))?;
         return Ok("工作流已完成".into());
