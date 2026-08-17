@@ -208,9 +208,8 @@ pub fn status(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Res
 
 pub fn list_workflows(root: &Path) -> Result<String, String> {
     let base = root.join(".workflows");
-    let mut out = String::from("| 工作流 | 路径 |\n|--------|------|\n");
     if !base.exists() {
-        return Ok(out);
+        return Ok(String::new());
     }
     let mut names: Vec<String> = std::fs::read_dir(&base)
         .map_err(|e| format!("读取 .workflows 失败: {e}"))?
@@ -220,10 +219,7 @@ pub fn list_workflows(root: &Path) -> Result<String, String> {
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
     names.sort();
-    for n in names {
-        out.push_str(&format!("| {n} | .workflows/{n} |\n"));
-    }
-    Ok(out)
+    Ok(names.join("\n"))
 }
 
 pub fn list_instances(root: &Path, workflow_filter: Option<&str>) -> Result<String, String> {
