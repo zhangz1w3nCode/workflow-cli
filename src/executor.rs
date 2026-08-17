@@ -26,7 +26,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
 
     if node.node_type == "end" {
         pf.state.status = Status::Completed;
-        pf.append_trace("[completed] 工作流结束");
+        pf.append_trace("completed", "工作流", "结束");
         pf.mermaid = render_mermaid(&flow, &pf.state);
         pf.write(&inst_dir.join("process.md"))?;
         return Ok("工作流已完成".into());
@@ -52,7 +52,8 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
     } else {
         Status::Executing
     };
-    pf.append_trace(&format!("[active] {} ({})", node.data.label, pf.state.current_invoke));
+    let invoke = pf.state.current_invoke.clone();
+    pf.append_trace("active", &node.data.label, &invoke);
     pf.mermaid = render_mermaid(&flow, &pf.state);
     pf.write(&inst_dir.join("process.md"))?;
 
@@ -75,7 +76,9 @@ pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) ->
 
     artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, output)?;
 
-    pf.append_trace(&format!("[completed] {} ({})", pf.state.current_name, pf.state.current_invoke));
+    let name = pf.state.current_name.clone();
+    let invoke = pf.state.current_invoke.clone();
+    pf.append_trace("completed", &name, &invoke);
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }
@@ -108,7 +111,9 @@ pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Res
     let flow = load_flow(root, workflow)?;
 
     artifact::write_error(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, reason)?;
-    pf.append_trace(&format!("[failed] {} ({})", pf.state.current_name, pf.state.current_invoke));
+    let name = pf.state.current_name.clone();
+    let invoke = pf.state.current_invoke.clone();
+    pf.append_trace("failed", &name, &invoke);
 
     pf.state.retry_count += 1;
     if let Err(msg) = crate::limits::check_retry_limit(&pf.state) {
@@ -150,7 +155,9 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
         None => format!("选择分支: {branch}"),
     };
     artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, &detail)?;
-    pf.append_trace(&format!("[completed] {} (分支: {})", pf.state.current_name, branch));
+    let name = pf.state.current_name.clone();
+    let detail = format!("分支: {}", branch);
+    pf.append_trace("completed", &name, &detail);
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }

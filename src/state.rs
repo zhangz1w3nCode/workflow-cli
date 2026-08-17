@@ -63,10 +63,17 @@ pub struct ProcessState {
     pub limits: Limits,
 }
 
+#[derive(Debug, Clone)]
+pub struct TraceEvent {
+    pub status: String,
+    pub node: String,
+    pub detail: String,
+}
+
 pub struct ProcessFile {
     pub state: ProcessState,
     pub mermaid: String,
-    pub trace: String,
+    pub trace: Vec<TraceEvent>,
 }
 
 impl ProcessFile {
@@ -87,7 +94,7 @@ impl ProcessFile {
         let yaml_str = yaml_lines.join("\n");
         let body = lines.collect::<Vec<_>>().join("\n");
         let marker = "## 执行轨迹";
-        let (mermaid, trace) = match body.find(marker) {
+        let (mermaid, trace_text) = match body.find(marker) {
             Some(idx) => {
                 let raw = body[..idx].trim().to_string();
                 let after = body[idx + marker.len()..].trim_start_matches('\n').to_string();
@@ -98,13 +105,15 @@ impl ProcessFile {
         };
         let state: ProcessState = serde_yaml::from_str(&yaml_str)
             .map_err(|e| format!("解析 process.md frontmatter 失败: {e}"))?;
+        let trace = parse_trace_table(&trace_text);
         Ok(ProcessFile { state, mermaid, trace })
     }
 
     pub fn write(&self, path: &Path) -> Result<(), String> {
         let yaml = serde_yaml::to_string(&self.state)
             .map_err(|e| format!("序列化状态失败: {e}"))?;
-        let body = format!("## 流程进度\n\n{}\n\n## 执行轨迹\n\n{}", self.mermaid, self.trace);
+        let trace_table = render_trace_table(&self.trace);
+        let body = format!("## 流程进度\n\n{}\n\n## 执行轨迹\n\n{}", self.mermaid, trace_table);
         let content = format!("---\n{yaml}---\n\n{body}\n");
         let tmp = path.with_extension("tmp");
         std::fs::write(&tmp, content).map_err(|e| format!("写入失败: {e}"))?;
@@ -112,12 +121,45 @@ impl ProcessFile {
         Ok(())
     }
 
-    pub fn append_trace(&mut self, line: &str) {
-        if !self.trace.is_empty() {
-            self.trace.push('\n');
-        }
-        self.trace.push_str(line);
+    pub fn append_trace(&mut self, status: &str, node: &str, detail: &str) {
+        self.trace.push(TraceEvent {
+            status: status.to_string(),
+            node: node.to_string(),
+            detail: detail.to_string(),
+        });
     }
+}
+
+fn render_trace_table(trace: &[TraceEvent]) -> String {
+    let mut s = String::from("| # | 状态 | 节点 | 详情 |\n|---|------|------|------|\n");
+    for (i, e) in trace.iter().enumerate() {
+        s.push_str(&format!("| {} | {} | {} | {} |\n", i + 1, e.status, e.node, e.detail));
+    }
+    s
+}
+
+fn parse_trace_table(text: &str) -> Vec<TraceEvent> {
+    let mut events = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+        if cells.len() < 5 {
+            continue;
+        }
+        let num = cells[1];
+        if num.is_empty() || num == "#" || num.starts_with('-') {
+            continue;
+        }
+        events.push(TraceEvent {
+            status: cells[2].to_string(),
+            node: cells[3].to_string(),
+            detail: cells[4].to_string(),
+        });
+    }
+    events
 }
 
 #[cfg(test)]
@@ -147,8 +189,8 @@ mod tests {
     fn roundtrip_write_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("process.md");
-        let mut pf = ProcessFile { state: sample_state(), mermaid: "```mermaid\nflowchart TD\n```".into(), trace: String::new() };
-        pf.append_trace("[completed] 任务理解 (invoke 1)");
+        let mut pf = ProcessFile { state: sample_state(), mermaid: "```mermaid\nflowchart TD\n```".into(), trace: Vec::new() };
+        pf.append_trace("completed", "任务理解", "invoke 1");
         pf.write(&path).unwrap();
 
         let read = ProcessFile::read(&path).unwrap();
@@ -156,7 +198,10 @@ mod tests {
         assert_eq!(read.state.initial_input.as_deref(), Some("任务"));
         assert_eq!(read.state.status, Status::Idle);
         assert_eq!(read.state.current_invoke, "invoke-20260818-000001");
-        assert!(read.trace.contains("[completed] 任务理解 (invoke 1)"));
+        assert_eq!(read.trace.len(), 1);
+        assert_eq!(read.trace[0].status, "completed");
+        assert_eq!(read.trace[0].node, "任务理解");
+        assert_eq!(read.trace[0].detail, "invoke 1");
     }
 
     #[test]

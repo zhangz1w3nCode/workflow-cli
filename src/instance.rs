@@ -40,7 +40,7 @@ pub fn create(root: &Path, workflow: &str, instance_id: &str, input: Option<&str
     };
 
     let mermaid = crate::executor::render_mermaid(&flow, &state);
-    let pf = ProcessFile { state, mermaid, trace: String::new() };
+    let pf = ProcessFile { state, mermaid, trace: Vec::new() };
     pf.write(&inst_dir.join("process.md"))?;
 
     Ok(instance_id.to_string())
