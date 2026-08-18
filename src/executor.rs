@@ -311,12 +311,20 @@ fn read_node_md(root: &Path, node: &crate::model::Node) -> String {
     std::fs::read_to_string(&full).unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()))
 }
 
+/// Mermaid 节点 ID 不允许包含空格及多数特殊字符；把非 [字母/数字/_] 的字符统一替换为下划线，
+/// 避免带空格/标点的节点 label 被直接当作 ID 导致 mermaid 解析失败。
+fn mermaid_id(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
 fn node_ref_name(flow: &Flow, id: &str) -> String {
     match flow.node(id) {
         Some(n) if n.node_type == "start" => "start_node".to_string(),
         Some(n) if n.node_type == "end" => "end_node".to_string(),
-        Some(n) => n.data.label.clone(),
-        None => id.to_string(),
+        Some(n) => mermaid_id(&n.id),
+        None => mermaid_id(id),
     }
 }
 
@@ -491,5 +499,40 @@ mod tests {
         instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
         let out = next(root, "wf", "i1", false).unwrap();
         assert!(out.contains("缺少 nodeRefPath"));
+    }
+
+    #[test]
+    fn mermaid_render_sanitizes_node_ids_with_spaces() {
+        let flow: crate::model::Flow = serde_json::from_str(r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"d","type":"decision","data":{"label":"检测 审核","branches":[{"id":"b1","name":"没问题"},{"id":"b2","name":"其他"}]}}
+          ],
+          "edges": [
+            {"id":"e1","source":"start","target":"d","type":"default"},
+            {"id":"e2","source":"d","target":"end","branchId":"b1","type":"default"},
+            {"id":"e3","source":"d","target":"end","branchId":"b2","type":"default"}
+          ]
+        }"#).unwrap();
+        let state = crate::state::ProcessState {
+            workflow: "wf".into(),
+            instance_id: "id".into(),
+            initial_input: None,
+            status: Status::Idle,
+            current: "d".into(),
+            current_name: "检测 审核".into(),
+            current_invoke: "invoke-1".into(),
+            step: 0,
+            loop_count: 0,
+            retry_count: 0,
+            last_node: None,
+            last_invoke: None,
+            completed: vec![],
+            limits: Limits::default(),
+        };
+        let mermaid = render_mermaid(&flow, &state);
+        assert!(mermaid.contains("d{检测 审核}"), "节点 ID 应为安全标识而非带空格的 label:\n{mermaid}");
+        assert!(!mermaid.contains("检测 审核{检测 审核}"), "节点 ID 不应包含空格:\n{mermaid}");
     }
 }
