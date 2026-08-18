@@ -162,11 +162,13 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
         pf.state.completed.push(pf.state.current_name.clone());
     }
 
-    if graph.is_catch_all_branch(&pf.state.current, branch) {
-        pf.state.loop_count += 1;
+    let branch_id = node.data.branches.iter().find(|b| b.name == branch).map(|b| b.id.as_str());
+    if let Some(bid) = branch_id {
+        if graph.is_loop_back(&pf.state.current, bid, &pf.state.completed) {
+            pf.state.loop_count += 1;
+        }
     }
 
-    let branch_id = node.data.branches.iter().find(|b| b.name == branch).map(|b| b.id.as_str());
     let next_id = graph.next_node(&pf.state.current, branch_id)?;
     let next_node = flow.node(&next_id).ok_or("下一个节点不存在")?;
     let next_invoke = crate::state::gen_invoke_id();
@@ -534,5 +536,86 @@ mod tests {
         let mermaid = render_mermaid(&flow, &state);
         assert!(mermaid.contains("d{检测 审核}"), "节点 ID 应为安全标识而非带空格的 label:\n{mermaid}");
         assert!(!mermaid.contains("检测 审核{检测 审核}"), "节点 ID 不应包含空格:\n{mermaid}");
+    }
+
+    #[test]
+    fn choose_forward_does_not_increment_loop_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let wf = root.join(".workflows/wf");
+        std::fs::create_dir_all(wf.join("meta-data")).unwrap();
+        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"a","type":"business","data":{"label":"任务理解","nodeRefPath":".nodes/任务理解.md"}},
+            {"id":"d","type":"decision","data":{"label":"查类型","branches":[
+              {"id":"code","name":"写代码"},
+              {"id":"other","name":"其他","description":"均不符合上述分类的进入本分支"}
+            ]}},
+            {"id":"p","type":"process","data":{"label":"搜索代码库","content":"直接搜索"}}
+          ],
+          "edges": [
+            {"id":"e1","source":"start","target":"a","type":"default"},
+            {"id":"e2","source":"a","target":"d","type":"default"},
+            {"id":"e3","source":"d","target":"p","branchId":"other","type":"default"},
+            {"id":"e4","source":"p","target":"end","type":"default"},
+            {"id":"e5","source":"d","target":"end","branchId":"code","type":"default"}
+          ]
+        }"#).unwrap();
+        std::fs::write(wf.join("WORKFLOW.md"), "# workflow\n").unwrap();
+        std::fs::create_dir_all(root.join(".nodes")).unwrap();
+        std::fs::write(root.join(".nodes/任务理解.md"), "# 任务\n- 理解任务\n").unwrap();
+
+        instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
+        next(root, "wf", "i1", false).unwrap();           // 任务理解 (business)
+        complete(root, "wf", "i1", "理解产物").unwrap();   // -> 查类型
+        next(root, "wf", "i1", false).unwrap();           // 查类型 (decision)
+        choose(root, "wf", "i1", "其他", None).unwrap();   // 正向 -> 搜索代码库
+
+        let pf = ProcessFile::read(&root.join(".workflows/wf/instance/i1/process.md")).unwrap();
+        assert_eq!(pf.state.loop_count, 0);
+    }
+
+    #[test]
+    fn choose_loop_back_increments_loop_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let wf = root.join(".workflows/wf");
+        std::fs::create_dir_all(wf.join("meta-data")).unwrap();
+        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"a","type":"business","data":{"label":"调研","nodeRefPath":".nodes/调研.md"}},
+            {"id":"b","type":"business","data":{"label":"写方案","nodeRefPath":".nodes/写方案.md"}},
+            {"id":"d","type":"decision","data":{"label":"审核","branches":[
+              {"id":"ok","name":"通过"},
+              {"id":"other","name":"其他"}
+            ]}}
+          ],
+          "edges": [
+            {"id":"e1","source":"start","target":"a","type":"default"},
+            {"id":"e2","source":"a","target":"b","type":"default"},
+            {"id":"e3","source":"b","target":"d","type":"default"},
+            {"id":"e4","source":"d","target":"b","branchId":"other","type":"default"},
+            {"id":"e5","source":"d","target":"end","branchId":"ok","type":"default"}
+          ]
+        }"#).unwrap();
+        std::fs::write(wf.join("WORKFLOW.md"), "# workflow\n").unwrap();
+        std::fs::create_dir_all(root.join(".nodes")).unwrap();
+        std::fs::write(root.join(".nodes/调研.md"), "# 调研\n- 调研\n").unwrap();
+        std::fs::write(root.join(".nodes/写方案.md"), "# 写方案\n- 写方案\n").unwrap();
+
+        instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
+        next(root, "wf", "i1", false).unwrap();           // 调研
+        complete(root, "wf", "i1", "调研产物").unwrap();   // -> 写方案
+        next(root, "wf", "i1", false).unwrap();           // 写方案
+        complete(root, "wf", "i1", "方案产物").unwrap();   // -> 审核
+        next(root, "wf", "i1", false).unwrap();           // 审核 (decision)
+        choose(root, "wf", "i1", "其他", None).unwrap();   // 回流 -> 写方案
+
+        let pf = ProcessFile::read(&root.join(".workflows/wf/instance/i1/process.md")).unwrap();
+        assert_eq!(pf.state.loop_count, 1);
     }
 }
