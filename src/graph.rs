@@ -37,12 +37,13 @@ impl<'a> Graph<'a> {
         }
     }
 
-    pub fn is_catch_all_branch(&self, decision_id: &str, branch_name: &str) -> bool {
-        self.flow.node(decision_id)
-            .map(|n| n.data.branches.iter()
-                .find(|b| b.name == branch_name)
-                .map(|b| b.description.is_some())
-                .unwrap_or(false))
+    /// 选中 branch 后是否构成环回：目标节点 label 已在 visited（已执行）集合中。
+    /// 与分支名称 / description 无关，只看「目标是否回到已访问节点」。
+    pub fn is_loop_back(&self, decision_id: &str, branch_id: &str, visited: &[String]) -> bool {
+        self.next_node(decision_id, Some(branch_id))
+            .ok()
+            .and_then(|target_id| self.flow.node(&target_id))
+            .map(|n| visited.contains(&n.data.label))
             .unwrap_or(false)
     }
 
@@ -101,11 +102,15 @@ mod tests {
     }
 
     #[test]
-    fn catch_all_detection() {
+    fn loop_back_detection() {
         let f = flow();
         let g = Graph::new(&f);
-        assert!(!g.is_catch_all_branch("d", "没问题"));
-        assert!(g.is_catch_all_branch("d", "其他"));
+        // "other" 分支回到节点 a（label "A"），构成环回
+        assert!(g.is_loop_back("d", "other", &["A".to_string()]));
+        // "ok" 分支到 end，非环回
+        assert!(!g.is_loop_back("d", "ok", &["A".to_string()]));
+        // 目标 label "A" 不在 visited 中，即使走 "other" 也不算环回
+        assert!(!g.is_loop_back("d", "other", &["结束".to_string()]));
         assert_eq!(g.branch_names("d"), vec!["没问题", "其他"]);
     }
 }
