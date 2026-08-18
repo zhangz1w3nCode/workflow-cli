@@ -24,6 +24,8 @@ pub struct NodeData {
     pub condition: Option<String>,
     #[serde(default)]
     pub branches: Vec<Branch>,
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -273,7 +273,7 @@ fn render_node(root: &Path, node: &crate::model::Node, invoke: &str, json: bool)
                 }).collect::<Vec<_>>()
             }).to_string(),
             _ => serde_json::json!({
-                "type": "business",
+                "type": node.node_type,
                 "node_id": node.id,
                 "node_name": node.data.label,
                 "invoke": invoke,
@@ -300,7 +300,13 @@ fn render_node(root: &Path, node: &crate::model::Node, invoke: &str, json: bool)
 }
 
 fn read_node_md(root: &Path, node: &crate::model::Node) -> String {
+    if node.node_type == "process" {
+        return node.data.content.clone().unwrap_or_else(|| format!("process 节点 {} 缺少 content", node.data.label));
+    }
     let ref_path = node.data.node_ref_path.as_deref().unwrap_or("");
+    if ref_path.is_empty() {
+        return format!("节点 {} 缺少 nodeRefPath", node.data.label);
+    }
     let full = root.join(ref_path);
     std::fs::read_to_string(&full).unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()))
 }
@@ -445,5 +451,45 @@ mod tests {
         assert_eq!(pf.state.status, Status::Idle);
         let out = next(root, "wf", "i1", false).unwrap();
         assert!(out.contains("已完成"));
+    }
+
+    #[test]
+    fn process_node_outputs_inline_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let wf = root.join(".workflows/wf");
+        std::fs::create_dir_all(wf.join("meta-data")).unwrap();
+        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"p","type":"process","data":{"label":"代码审核","content":"详细审核代码看看"}}
+          ],
+          "edges": [{"id":"e1","source":"start","target":"p","type":"default"},
+                    {"id":"e2","source":"p","target":"end","type":"default"}]
+        }"#).unwrap();
+        instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
+        let out = next(root, "wf", "i1", false).unwrap();
+        assert!(out.contains("详细审核代码看看"));
+    }
+
+    #[test]
+    fn business_node_missing_ref_reports_clearly() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let wf = root.join(".workflows/wf");
+        std::fs::create_dir_all(wf.join("meta-data")).unwrap();
+        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"a","type":"business","data":{"label":"任务理解"}}
+          ],
+          "edges": [{"id":"e1","source":"start","target":"a","type":"default"},
+                    {"id":"e2","source":"a","target":"end","type":"default"}]
+        }"#).unwrap();
+        instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
+        let out = next(root, "wf", "i1", false).unwrap();
+        assert!(out.contains("缺少 nodeRefPath"));
     }
 }
