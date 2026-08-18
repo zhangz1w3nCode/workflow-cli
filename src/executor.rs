@@ -151,8 +151,8 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
     }
 
     let detail = match reason {
-        Some(r) => format!("选择分支: {branch}\n理由: {r}"),
-        None => format!("选择分支: {branch}"),
+        Some(r) => format!("## 选择分支\n- {branch}\n\n## 理由\n- {r}"),
+        None => format!("## 选择分支\n- {branch}"),
     };
     artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, &detail)?;
     let name = pf.state.current_name.clone();
@@ -286,7 +286,7 @@ fn render_node(root: &Path, node: &crate::model::Node, invoke: &str, json: bool)
 
     match node.node_type.as_str() {
         "decision" => {
-            let mut s = String::from("# 判断条件\n\n");
+            let mut s = String::from("# 判断内容\n\n");
             s.push_str(node.data.condition.as_deref().unwrap_or(""));
             s.push_str("\n\n# 可选分支\n\n");
             for b in &node.data.branches {
