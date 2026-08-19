@@ -195,8 +195,47 @@ pub fn view(root: &Path, workflow: &str, instance_id: &str, node: Option<&str>, 
     Ok(s)
 }
 
-pub fn search(_root: &Path, _workflow: &str, _instance_id: &str, _keyword: &str, _json: bool) -> Result<String, String> {
-    Err("artifact search 尚未实现".into())
+pub fn search(root: &Path, workflow: &str, instance_id: &str, keyword: &str, json: bool) -> Result<String, String> {
+    let entries = collect_entries(root, workflow, instance_id)?;
+
+    let mut results: Vec<&ArtifactEntry> = Vec::new();
+    for e in &entries {
+        if e.invoke == "-" {
+            continue;
+        }
+        let content = read_content(root, workflow, instance_id, &e.node, &e.invoke)?;
+        if let Some((_, text)) = content {
+            if text.contains(keyword) {
+                results.push(e);
+            }
+        }
+    }
+
+    if json {
+        let artifacts: Vec<_> = results.iter().map(|e| serde_json::json!({
+            "order": e.order,
+            "node": e.node,
+            "invoke": e.invoke,
+            "type": e.artifact_type.as_str(),
+            "status": e.status,
+            "time": e.time,
+            "branch": e.branch,
+        })).collect();
+        let obj = serde_json::json!({
+            "instance": instance_id,
+            "keyword": keyword,
+            "results": artifacts,
+        });
+        return serde_json::to_string_pretty(&obj).map_err(|e| format!("序列化失败: {e}"));
+    }
+
+    let mut s = String::from("| # | 节点 | 执行ID | 类型 | 状态 | 执行时间 |\n|---|------|--------|------|------|---------|\n");
+    for e in &results {
+        s.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n",
+            e.order, node_display(&e.node, &e.branch), e.invoke,
+            e.artifact_type.as_str(), e.status, e.time));
+    }
+    Ok(s)
 }
 
 pub fn timeline(_root: &Path, _workflow: &str, _instance_id: &str, _json: bool) -> Result<String, String> {

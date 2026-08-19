@@ -229,3 +229,23 @@ fn artifact_view_no_args_errors() {
     assert!(!ok);
     assert!(err.contains("请通过 --node 或 --invoke"));
 }
+
+#[test]
+fn artifact_search_finds_keyword_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "调研产物内容"]);
+
+    let (ok, out, err) = run(root, &["artifact", "search", "--instance", id, "--keyword", "调研"]);
+    assert!(ok, "search failed: {err}");
+    assert!(out.contains("任务调研"), "应包含节点 任务调研: {out}");
+    assert!(!out.contains("任务理解"), "不应包含节点 任务理解: {out}");
+}
