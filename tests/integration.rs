@@ -351,3 +351,66 @@ fn artifact_diff_context_limit_mode() {
     assert!(out.contains("aaa"), "--full 应显示全部行: {out}");
     assert!(out.contains("jjj"), "--full 应显示全部行: {out}");
 }
+
+#[test]
+fn context_set_and_get() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let (ok, _, err) = run(root, &["context", "set", "--instance", id, "--topic", "调研", "--content", "完成了项目调研"]);
+    assert!(ok, "context set failed: {err}");
+
+    let (ok, out, err) = run(root, &["context", "get", "--instance", id]);
+    assert!(ok, "context get failed: {err}");
+    assert!(out.contains("调研"), "应包含 topic: {out}");
+    assert!(out.contains("完成了项目调研"), "应包含 content: {out}");
+
+    // 追加第二条
+    let (ok, _, _) = run(root, &["context", "set", "--instance", id, "--topic", "方案", "--content", "设计了方案"]);
+    assert!(ok);
+
+    let (ok, out, _) = run(root, &["context", "get", "--instance", id]);
+    assert!(ok);
+    assert!(out.contains("调研"), "应保留第一条: {out}");
+    assert!(out.contains("方案"), "应包含第二条: {out}");
+    assert!(out.contains("完成了项目调研"), "应保留第一条内容: {out}");
+    assert!(out.contains("设计了方案"), "应包含第二条内容: {out}");
+}
+
+#[test]
+fn context_get_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let (ok, out, _) = run(root, &["context", "get", "--instance", id]);
+    assert!(ok);
+    assert!(out.contains("无暂存上下文"));
+}
+
+#[test]
+fn timeline_includes_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf", "--input", "测试任务"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物"]);
+    run(root, &["context", "set", "--instance", id, "--topic", "阶段1", "--content", "完成了理解阶段"]);
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id]);
+    assert!(ok, "timeline failed: {err}");
+    assert!(out.contains("上下文"), "应包含上下文标题: {out}");
+    assert!(out.contains("阶段1"), "应包含 topic: {out}");
+    assert!(out.contains("完成了理解阶段"), "应包含 content: {out}");
+}

@@ -501,10 +501,42 @@ pub fn diff(root: &Path, workflow: &str, instance_id: &str, node: &str, json: bo
     Ok(s)
 }
 
-pub fn context_set(_root: &Path, _workflow: &str, _instance_id: &str, _topic: &str, _content: &str) -> Result<String, String> {
-    Err("context set 尚未实现".into())
+pub fn context_set(root: &Path, workflow: &str, instance_id: &str, topic: &str, content: &str) -> Result<String, String> {
+    let path = instance_dir(root, workflow, instance_id).join("context.md");
+    let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+    let entry = format!("## [{}] {}\n\n{}\n", time, topic, content);
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("打开 context.md 失败: {e}"))?;
+    file.write_all(entry.as_bytes())
+        .map_err(|e| format!("写入 context.md 失败: {e}"))?;
+
+    Ok("上下文已暂存".into())
 }
 
-pub fn context_get(_root: &Path, _workflow: &str, _instance_id: &str, _json: bool) -> Result<String, String> {
-    Err("context get 尚未实现".into())
+pub fn context_get(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Result<String, String> {
+    let path = instance_dir(root, workflow, instance_id).join("context.md");
+    if !path.exists() {
+        if json {
+            return Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "instance": instance_id,
+                "context": serde_json::Value::Null,
+            })).map_err(|e| format!("序列化失败: {e}"))?);
+        }
+        return Ok("无暂存上下文".into());
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取 context.md 失败: {e}"))?;
+
+    if json {
+        return Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "instance": instance_id,
+            "context": content,
+        })).map_err(|e| format!("序列化失败: {e}"))?);
+    }
+    Ok(content)
 }
