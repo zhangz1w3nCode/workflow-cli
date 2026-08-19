@@ -238,8 +238,93 @@ pub fn search(root: &Path, workflow: &str, instance_id: &str, keyword: &str, jso
     Ok(s)
 }
 
-pub fn timeline(_root: &Path, _workflow: &str, _instance_id: &str, _json: bool) -> Result<String, String> {
-    Err("artifact timeline 尚未实现".into())
+pub fn timeline(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Result<String, String> {
+    let entries = collect_entries(root, workflow, instance_id)?;
+    let pf = ProcessFile::read(&instance_dir(root, workflow, instance_id).join("process.md"))?;
+
+    let mut results: Vec<(&ArtifactEntry, Option<(ArtifactType, String)>)> = Vec::new();
+    for e in &entries {
+        let content = if e.invoke == "-" {
+            None
+        } else {
+            read_content(root, workflow, instance_id, &e.node, &e.invoke)?
+        };
+        results.push((e, content));
+    }
+
+    let context_path = instance_dir(root, workflow, instance_id).join("context.md");
+    let context = std::fs::read_to_string(&context_path).ok().filter(|c| !c.is_empty());
+
+    if json {
+        let timeline: Vec<_> = results.iter().map(|(e, content)| {
+            let (atype, content_val) = match content {
+                Some((t, c)) => (t.as_str(), serde_json::Value::String(c.clone())),
+                None => (e.artifact_type.as_str(), serde_json::Value::Null),
+            };
+            serde_json::json!({
+                "order": e.order,
+                "node": e.node,
+                "invoke": e.invoke,
+                "type": atype,
+                "status": e.status,
+                "time": e.time,
+                "branch": e.branch,
+                "content": content_val,
+            })
+        }).collect();
+        let obj = serde_json::json!({
+            "instance": instance_id,
+            "workflow": workflow,
+            "status": pf.state.status.as_str(),
+            "initial_input": pf.state.initial_input,
+            "context": context,
+            "timeline": timeline,
+        });
+        return serde_json::to_string_pretty(&obj).map_err(|e| format!("序列化失败: {e}"));
+    }
+
+    let mut s = String::new();
+    s.push_str(&format!("# 实例: {}\n", instance_id));
+    s.push_str(&format!("# 工作流: {}\n", workflow));
+    s.push_str(&format!("# 状态: {}\n", pf.state.status.as_str()));
+    if let Some(input) = &pf.state.initial_input {
+        s.push_str(&format!("# 初始任务: {}\n", input));
+    }
+    if let Some(ctx) = &context {
+        s.push_str("\n## 上下文\n\n");
+        s.push_str(ctx);
+        if !ctx.ends_with('\n') {
+            s.push('\n');
+        }
+    }
+    s.push_str("\n## 执行时间线\n\n");
+
+    s.push_str("| # | 节点 | 执行ID | 类型 | 状态 | 执行时间 |\n|---|------|--------|------|------|---------|\n");
+    for e in &entries {
+        s.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n",
+            e.order, node_display(&e.node, &e.branch), e.invoke,
+            e.artifact_type.as_str(), e.status, e.time));
+    }
+
+    s.push_str("\n## 产物详情\n\n");
+    for (e, content) in &results {
+        s.push_str(&format!("### [{}] {} ({})\n", e.order, node_display(&e.node, &e.branch), e.invoke));
+        match content {
+            Some((atype, text)) => {
+                s.push_str(&format!("> 类型: {} | 状态: {} | 时间: {}\n\n", atype.as_str(), e.status, e.time));
+                s.push_str(text);
+                if !text.ends_with('\n') {
+                    s.push('\n');
+                }
+            }
+            None => {
+                s.push_str(&format!("> 类型: none | 状态: {} | 时间: {}\n\n> 无产物\n", e.status, e.time));
+            }
+        }
+        s.push('\n');
+    }
+
+    Ok(s)
 }
 
 pub fn diff(_root: &Path, _workflow: &str, _instance_id: &str, _node: &str, _json: bool, _context: usize, _full: bool) -> Result<String, String> {

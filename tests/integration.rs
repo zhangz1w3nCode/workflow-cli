@@ -249,3 +249,28 @@ fn artifact_search_finds_keyword_in_order() {
     assert!(out.contains("任务调研"), "应包含节点 任务调研: {out}");
     assert!(!out.contains("任务理解"), "不应包含节点 任务理解: {out}");
 }
+
+#[test]
+fn artifact_timeline_shows_all_artifacts() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf", "--input", "测试任务"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "调研产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "没问题"]);
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id]);
+    assert!(ok, "timeline failed: {err}");
+    assert!(out.contains("理解产物内容"), "应包含产物内容: {out}");
+    assert!(out.contains("调研产物内容"), "应包含产物内容: {out}");
+    assert!(out.contains("执行时间线"), "应包含时间线标题: {out}");
+    assert!(out.contains("产物详情"), "应包含产物详情标题: {out}");
+    assert!(out.contains("测试任务"), "应包含初始任务: {out}");
+}
