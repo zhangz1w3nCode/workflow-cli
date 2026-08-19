@@ -1,4 +1,5 @@
 mod artifact;
+mod artifact_query;
 mod cli;
 mod executor;
 mod graph;
@@ -61,6 +62,42 @@ fn run() -> Result<(), String> {
         Command::Status { instance: id, json } => {
             let wf = instance_workflow(&root, &id)?;
             println!("{}", executor::status(&root, &wf, &id, json)?);
+        }
+        Command::Artifact(args) => {
+            match args.action {
+                cli::ArtifactAction::List { instance: id, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::list(&root, &wf, &id, json)?);
+                }
+                cli::ArtifactAction::View { instance: id, node, invoke, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::view(&root, &wf, &id, node.as_deref(), invoke.as_deref(), json)?);
+                }
+                cli::ArtifactAction::Search { instance: id, keyword, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::search(&root, &wf, &id, &keyword, json)?);
+                }
+                cli::ArtifactAction::Timeline { instance: id, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::timeline(&root, &wf, &id, json)?);
+                }
+                cli::ArtifactAction::Diff { instance: id, node, context, full, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::diff(&root, &wf, &id, &node, json, context, full)?);
+                }
+            }
+        }
+        Command::Context(args) => {
+            match args.action {
+                cli::ContextAction::Set { instance: id, topic, content } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::context_set(&root, &wf, &id, &topic, &content)?);
+                }
+                cli::ContextAction::Get { instance: id, json } => {
+                    let wf = instance_workflow(&root, &id)?;
+                    println!("{}", artifact_query::context_get(&root, &wf, &id, json)?);
+                }
+            }
         }
     }
     Ok(())

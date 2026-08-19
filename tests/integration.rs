@@ -129,3 +129,26 @@ fn illegal_transition_rejected() {
     assert!(!ok);
     assert!(err.contains("无执行中"));
 }
+
+#[test]
+fn artifact_list_shows_completed_artifacts() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (ok, id, _) = run(root, &["instance", "wf"]);
+    assert!(ok);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "调研产物内容"]);
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list failed: {err}");
+    assert!(out.contains("任务理解"), "应包含节点 任务理解: {out}");
+    assert!(out.contains("任务调研"), "应包含节点 任务调研: {out}");
+    assert!(out.contains("detail"), "应包含类型 detail: {out}");
+    assert!(out.contains("completed"), "应包含状态 completed: {out}");
+}
