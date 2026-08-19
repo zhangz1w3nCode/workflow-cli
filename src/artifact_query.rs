@@ -327,8 +327,178 @@ pub fn timeline(root: &Path, workflow: &str, instance_id: &str, json: bool) -> R
     Ok(s)
 }
 
-pub fn diff(_root: &Path, _workflow: &str, _instance_id: &str, _node: &str, _json: bool, _context: usize, _full: bool) -> Result<String, String> {
-    Err("artifact diff 尚未实现".into())
+#[derive(Clone)]
+enum DiffLine {
+    Context(String),
+    Added(String),
+    Removed(String),
+    Separator,
+}
+
+impl DiffLine {
+    fn tag(&self) -> &'static str {
+        match self {
+            DiffLine::Context(_) => "context",
+            DiffLine::Added(_) => "added",
+            DiffLine::Removed(_) => "removed",
+            DiffLine::Separator => "separator",
+        }
+    }
+
+    fn value(&self) -> &str {
+        match self {
+            DiffLine::Context(s) | DiffLine::Added(s) | DiffLine::Removed(s) => s,
+            DiffLine::Separator => "...",
+        }
+    }
+}
+
+fn compute_diff(old: &str, new: &str) -> Vec<DiffLine> {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let m = old_lines.len();
+    let n = new_lines.len();
+
+    let mut dp = vec![vec![0u32; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            if old_lines[i - 1] == new_lines[j - 1] {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = dp[i - 1][j].max(dp[i][j - 1]);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    let mut i = m;
+    let mut j = n;
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1] {
+            result.push(DiffLine::Context(old_lines[i - 1].to_string()));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            result.push(DiffLine::Added(new_lines[j - 1].to_string()));
+            j -= 1;
+        } else {
+            result.push(DiffLine::Removed(old_lines[i - 1].to_string()));
+            i -= 1;
+        }
+    }
+    result.reverse();
+    result
+}
+
+fn apply_context_limit(diff: &[DiffLine], context: usize) -> Vec<DiffLine> {
+    let change_indices: Vec<usize> = diff.iter().enumerate()
+        .filter(|(_, l)| !matches!(l, DiffLine::Context(_)))
+        .map(|(i, _)| i)
+        .collect();
+
+    if change_indices.is_empty() {
+        return Vec::new();
+    }
+
+    let mut include = vec![false; diff.len()];
+    for &ci in &change_indices {
+        let start = ci.saturating_sub(context);
+        let end = (ci + context + 1).min(diff.len());
+        include[start..end].fill(true);
+    }
+
+    let mut result = Vec::new();
+    let mut prev_included = false;
+    for (i, line) in diff.iter().enumerate() {
+        if include[i] {
+            result.push(line.clone());
+            prev_included = true;
+        } else if prev_included {
+            result.push(DiffLine::Separator);
+            prev_included = false;
+        }
+    }
+    if let Some(DiffLine::Separator) = result.last() {
+        result.pop();
+    }
+    result
+}
+
+pub fn diff(root: &Path, workflow: &str, instance_id: &str, node: &str, json: bool, context: usize, full: bool) -> Result<String, String> {
+    let entries = collect_entries(root, workflow, instance_id)?;
+    let matched: Vec<&ArtifactEntry> = entries.iter().filter(|e| e.node == node).collect();
+
+    if matched.len() < 2 {
+        return Err(format!("节点 {node} 仅执行 {} 次，需至少 2 次才能对比", matched.len()));
+    }
+
+    let mut contents: Vec<(&ArtifactEntry, Option<String>)> = Vec::new();
+    for e in &matched {
+        let content = read_content(root, workflow, instance_id, &e.node, &e.invoke)
+            .map(|c| c.map(|(_, text)| text))?;
+        contents.push((e, content));
+    }
+
+    let mut diffs = Vec::new();
+    for i in 0..contents.len() - 1 {
+        let (e1, c1) = &contents[i];
+        let (e2, c2) = &contents[i + 1];
+        let text1 = c1.as_deref().unwrap_or("");
+        let text2 = c2.as_deref().unwrap_or("");
+        let raw = compute_diff(text1, text2);
+        let display = if full { raw } else { apply_context_limit(&raw, context) };
+        diffs.push((e1, e2, display));
+    }
+
+    if json {
+        let diff_arr: Vec<_> = diffs.iter().map(|(e1, e2, lines)| {
+            let changes: Vec<_> = lines.iter().map(|l| serde_json::json!({
+                "type": l.tag(),
+                "value": l.value(),
+            })).collect();
+            serde_json::json!({
+                "from_invoke": e1.invoke,
+                "to_invoke": e2.invoke,
+                "from_status": e1.status,
+                "to_status": e2.status,
+                "from_time": e1.time,
+                "to_time": e2.time,
+                "changes": changes,
+            })
+        }).collect();
+        let obj = serde_json::json!({
+            "instance": instance_id,
+            "node": node,
+            "diffs": diff_arr,
+        });
+        return serde_json::to_string_pretty(&obj).map_err(|e| format!("序列化失败: {e}"));
+    }
+
+    let mut s = String::new();
+    for (i, (e1, e2, lines)) in diffs.iter().enumerate() {
+        s.push_str(&format!("## [{}→{}] {} ({})\n", i + 1, i + 2, node_display(&e1.node, &e1.branch), e1.invoke));
+        s.push_str(&format!("> 对比: {} ({}, {}) → {} ({}, {})\n\n",
+            e1.invoke, e1.status, e1.time,
+            e2.invoke, e2.status, e2.time));
+        if lines.is_empty() {
+            s.push_str("无变更\n");
+        } else {
+            s.push_str("```diff\n");
+            for l in lines {
+                match l {
+                    DiffLine::Context(text) => s.push_str(&format!("  {text}\n")),
+                    DiffLine::Added(text) => s.push_str(&format!("+ {text}\n")),
+                    DiffLine::Removed(text) => s.push_str(&format!("- {text}\n")),
+                    DiffLine::Separator => s.push_str("...\n"),
+                }
+            }
+            s.push_str("```\n");
+        }
+        if i + 1 < diffs.len() {
+            s.push('\n');
+        }
+    }
+    Ok(s)
 }
 
 pub fn context_set(_root: &Path, _workflow: &str, _instance_id: &str, _topic: &str, _content: &str) -> Result<String, String> {

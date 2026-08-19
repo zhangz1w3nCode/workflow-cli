@@ -274,3 +274,80 @@ fn artifact_timeline_shows_all_artifacts() {
     assert!(out.contains("产物详情"), "应包含产物详情标题: {out}");
     assert!(out.contains("测试任务"), "应包含初始任务: {out}");
 }
+
+#[test]
+fn artifact_diff_shows_changes_between_executions() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "第一次调研结果"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "第二次调研结果"]);
+
+    let (ok, out, err) = run(root, &["artifact", "diff", "--instance", id, "--node", "任务调研"]);
+    assert!(ok, "diff failed: {err}");
+    assert!(out.contains("- 第一次调研结果"), "应显示删除行: {out}");
+    assert!(out.contains("+ 第二次调研结果"), "应显示新增行: {out}");
+}
+
+#[test]
+fn artifact_diff_single_execution_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物"]);
+
+    let (ok, _, err) = run(root, &["artifact", "diff", "--instance", id, "--node", "任务理解"]);
+    assert!(!ok);
+    assert!(err.contains("仅执行 1 次"));
+}
+
+#[test]
+fn artifact_diff_context_limit_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let old = "aaa\nbbb\nccc\nddd\neee\nfff\nggg\nhhh\niii\njjj";
+    let new = "aaa\nbbb\nccc\nddd\neee-x\nfff\nggg\nhhh\niii\njjj";
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", old]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", new]);
+
+    let (ok, out, err) = run(root, &["artifact", "diff", "--instance", id, "--node", "任务调研", "--context", "1"]);
+    assert!(ok, "diff --context 1 failed: {err}");
+    assert!(out.contains("- eee"), "应显示删除行: {out}");
+    assert!(out.contains("+ eee-x"), "应显示新增行: {out}");
+    assert!(out.contains("ddd"), "应显示变更前1行: {out}");
+    assert!(out.contains("fff"), "应显示变更后1行: {out}");
+    assert!(!out.contains("aaa"), "不应显示远离变更的行: {out}");
+    assert!(!out.contains("jjj"), "不应显示远离变更的行: {out}");
+
+    let (ok, out, _) = run(root, &["artifact", "diff", "--instance", id, "--node", "任务调研", "--full"]);
+    assert!(ok);
+    assert!(out.contains("aaa"), "--full 应显示全部行: {out}");
+    assert!(out.contains("jjj"), "--full 应显示全部行: {out}");
+}
