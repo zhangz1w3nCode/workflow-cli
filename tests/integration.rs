@@ -414,3 +414,44 @@ fn timeline_includes_context() {
     assert!(out.contains("阶段1"), "应包含 topic: {out}");
     assert!(out.contains("完成了理解阶段"), "应包含 content: {out}");
 }
+
+#[test]
+fn artifact_list_json_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id, "--json"]);
+    assert!(ok, "json output failed: {err}");
+    assert!(out.contains("\"artifacts\""), "应包含 artifacts 字段: {out}");
+    assert!(out.contains("\"node\""), "应包含 node 字段: {out}");
+    assert!(out.contains("\"invoke\""), "应包含 invoke 字段: {out}");
+}
+
+#[test]
+fn artifact_timeline_json_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf", "--input", "测试任务"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "调研产物内容"]);
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id, "--json"]);
+    assert!(ok, "json output failed: {err}");
+    assert!(out.contains("\"timeline\""), "应包含 timeline 字段: {out}");
+    assert!(out.contains("\"content\""), "应包含 content 字段: {out}");
+    assert!(out.contains("\"initial_input\""), "应包含 initial_input 字段: {out}");
+    assert!(out.contains("理解产物内容"), "应包含产物内容: {out}");
+}
