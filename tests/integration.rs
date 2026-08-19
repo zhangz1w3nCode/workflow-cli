@@ -152,3 +152,80 @@ fn artifact_list_shows_completed_artifacts() {
     assert!(out.contains("detail"), "应包含类型 detail: {out}");
     assert!(out.contains("completed"), "应包含状态 completed: {out}");
 }
+
+#[test]
+fn artifact_view_by_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "调研产物内容"]);
+
+    let (ok, out, err) = run(root, &["artifact", "view", "--instance", id, "--node", "任务理解"]);
+    assert!(ok, "view --node failed: {err}");
+    assert!(out.contains("理解产物内容"), "应包含产物内容: {out}");
+
+    let (ok, out, _) = run(root, &["artifact", "view", "--instance", id, "--node", "任务调研"]);
+    assert!(ok);
+    assert!(out.contains("调研产物内容"));
+}
+
+#[test]
+fn artifact_view_by_invoke() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解产物内容"]);
+
+    let (_, list_out, _) = run(root, &["artifact", "list", "--instance", id]);
+    let invoke_id = list_out
+        .lines()
+        .find(|l| l.contains("任务理解"))
+        .and_then(|l| l.split('|').nth(3))
+        .map(|s| s.trim().to_string())
+        .expect("应找到任务理解的 invoke-id");
+    assert!(invoke_id.starts_with("invoke-"));
+
+    let (ok, out, err) = run(root, &["artifact", "view", "--instance", id, "--invoke", &invoke_id]);
+    assert!(ok, "view --invoke failed: {err}");
+    assert!(out.contains("理解产物内容"), "应包含产物内容: {out}");
+}
+
+#[test]
+fn artifact_view_missing_node_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let (ok, _, err) = run(root, &["artifact", "view", "--instance", id, "--node", "不存在的节点"]);
+    assert!(!ok);
+    assert!(err.contains("未找到节点"));
+}
+
+#[test]
+fn artifact_view_no_args_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let (ok, _, err) = run(root, &["artifact", "view", "--instance", id]);
+    assert!(!ok);
+    assert!(err.contains("请通过 --node 或 --invoke"));
+}
