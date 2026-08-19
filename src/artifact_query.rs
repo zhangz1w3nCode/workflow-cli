@@ -522,10 +522,10 @@ pub fn context_get(root: &Path, workflow: &str, instance_id: &str, json: bool) -
     let path = instance_dir(root, workflow, instance_id).join("context.md");
     if !path.exists() {
         if json {
-            return Ok(serde_json::to_string_pretty(&serde_json::json!({
+            return serde_json::to_string_pretty(&serde_json::json!({
                 "instance": instance_id,
                 "context": serde_json::Value::Null,
-            })).map_err(|e| format!("序列化失败: {e}"))?);
+            })).map_err(|e| format!("序列化失败: {e}"));
         }
         return Ok("无暂存上下文".into());
     }
@@ -533,10 +533,10 @@ pub fn context_get(root: &Path, workflow: &str, instance_id: &str, json: bool) -
         .map_err(|e| format!("读取 context.md 失败: {e}"))?;
 
     if json {
-        return Ok(serde_json::to_string_pretty(&serde_json::json!({
+        return serde_json::to_string_pretty(&serde_json::json!({
             "instance": instance_id,
             "context": content,
-        })).map_err(|e| format!("序列化失败: {e}"))?);
+        })).map_err(|e| format!("序列化失败: {e}"));
     }
     Ok(content)
 }
