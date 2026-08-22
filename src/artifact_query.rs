@@ -31,15 +31,8 @@ struct ArtifactEntry {
 }
 
 fn collect_entries(root: &Path, workflow: &str, instance_id: &str) -> Result<(Vec<ArtifactEntry>, ProcessFile), String> {
-    let inst_dir = instance_dir(root, workflow, instance_id);
-    let mut pf = ProcessFile::read(&inst_dir.join("process.md"))?;
+    let pf = ProcessFile::read(&instance_dir(root, workflow, instance_id).join("process.md"))?;
 
-    let trace_jsonl = crate::state::trace_jsonl_path(&inst_dir);
-    let log_entries = crate::state::read_trace_jsonl(&trace_jsonl);
-    let jsonl_trace = crate::state::reconstruct_trace_from_jsonl(&log_entries);
-    if !jsonl_trace.is_empty() {
-        crate::state::merge_trace(&mut pf.trace, jsonl_trace);
-    }
     let mut entries = Vec::new();
     for (i, event) in pf.trace.iter().enumerate() {
         let atype = if event.invoke == "-" {

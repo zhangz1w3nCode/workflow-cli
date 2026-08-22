@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -2083,5 +2084,48 @@ fn trace_jsonl_partial_history_merges_with_process_md() {
     assert!(
         out.contains("invoke-partial"),
         "should contain jsonl-only entry invoke-partial: {out}"
+    );
+}
+
+#[test]
+fn process_md_trace_derived_from_trace_jsonl() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let fake_entry =
+        "{\"ts\":\"2026-01-01\",\"command\":\"next\",\"node\":\"DECOUPLED_TEST\",\"invoke\":\"invoke-decoupled\",\"status\":\"active\"}\n";
+    std::fs::OpenOptions::new().append(true).open(&trace_path).unwrap()
+        .write_all(fake_entry.as_bytes()).unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list after jsonl modify failed: {err}");
+    assert!(
+        out.contains("DECOUPLED_TEST"),
+        "artifact list should show DECOUPLED_TEST from trace.jsonl: {out}"
+    );
+
+    run(root, &["next", "--instance", id]);
+
+    let process_md = std::fs::read_to_string(
+        root.join(".workflows/wf/instance").join(id).join("process.md"),
+    )
+    .unwrap();
+    assert!(
+        process_md.contains("DECOUPLED_TEST"),
+        "process.md trace table should be derived from trace.jsonl (should contain DECOUPLED_TEST): {process_md}"
     );
 }

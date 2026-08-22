@@ -120,7 +120,13 @@ impl ProcessFile {
         };
         let state: ProcessState = serde_yaml::from_str(&yaml_str)
             .map_err(|e| format!("解析 process.md frontmatter 失败: {e}"))?;
-        let trace = parse_trace_table(&trace_text);
+        let mut trace = parse_trace_table(&trace_text);
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let log_entries = read_trace_jsonl(&trace_jsonl_path(parent));
+        let jsonl_trace = reconstruct_trace_from_jsonl(&log_entries);
+        if !jsonl_trace.is_empty() {
+            merge_trace(&mut trace, jsonl_trace);
+        }
         Ok(ProcessFile {
             state,
             mermaid,
