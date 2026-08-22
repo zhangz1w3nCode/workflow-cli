@@ -132,13 +132,11 @@ pub fn view(root: &Path, workflow: &str, instance_id: &str, node: Option<&str>, 
     };
 
     if matched.is_empty() {
-        if let Some(inv) = invoke {
-            return Err(format!("未找到执行ID: {inv}"));
-        }
-        if let Some(n) = node {
-            return Err(format!("未找到节点: {n}"));
-        }
-        return Err("未找到匹配的产物".into());
+        return Err(if let Some(inv) = invoke {
+            format!("未找到执行ID: {inv}")
+        } else {
+            format!("未找到节点: {}", node.unwrap_or("未知节点"))
+        });
     }
 
     let mut results: Vec<(&ArtifactEntry, Option<(ArtifactType, String)>)> = Vec::new();
@@ -206,10 +204,8 @@ pub fn search(root: &Path, workflow: &str, instance_id: &str, keyword: &str, jso
             continue;
         }
         let content = read_content(root, workflow, instance_id, &e.node, &e.invoke)?;
-        if let Some((_, text)) = content {
-            if text.contains(keyword) {
-                results.push(e);
-            }
+        if content.is_some_and(|(_, text)| text.contains(keyword)) {
+            results.push(e);
         }
     }
 

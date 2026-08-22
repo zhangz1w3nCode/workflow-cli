@@ -1312,3 +1312,405 @@ fn context_set_empty_content_errors() {
         "应报错 content 不能为空: {err}"
     );
 }
+
+#[test]
+fn error_artifact_coverage() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["fail", "--instance", id, "--reason", "执行失败原因"],
+    );
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "list after fail failed: {err}");
+    assert!(out.contains("error"), "应包含 error 类型: {out}");
+
+    let (ok, out, err) = run(
+        root,
+        &["artifact", "view", "--instance", id, "--node", "任务理解"],
+    );
+    assert!(ok, "view after fail failed: {err}");
+    assert!(out.contains("执行失败原因"), "应包含 error 内容: {out}");
+}
+
+#[test]
+fn list_with_end_node_invoke_dash() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "没问题"]);
+    run(root, &["next", "--instance", id]);
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "list with end failed: {err}");
+    assert!(out.contains("结束"), "应包含 end 节点: {out}");
+    assert!(out.contains("none"), "end 节点 type 应为 none: {out}");
+}
+
+#[test]
+fn view_no_artifact_text_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+
+    let (ok, out, err) = run(
+        root,
+        &["artifact", "view", "--instance", id, "--node", "审核"],
+    );
+    assert!(ok, "view no-artifact text failed: {err}");
+    assert!(out.contains("无产物"), "应显示无产物: {out}");
+}
+
+#[test]
+fn timeline_json_with_none_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id, "--json"]);
+    assert!(ok, "timeline json with none failed: {err}");
+    assert!(out.contains("null"), "审核节点 content 应为 null: {out}");
+}
+
+#[test]
+fn timeline_text_with_none_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id]);
+    assert!(ok, "timeline text with none failed: {err}");
+    assert!(out.contains("无产物"), "应显示无产物: {out}");
+}
+
+#[test]
+fn diff_separator_coverage() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let old = "aaa\nbbb\nccc\nddd\neee\nfff\nggg";
+    let new = "aaa\nbbb-x\nccc\nddd\neee\nfff\nggg-x";
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", old]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", new]);
+
+    let (ok, out, err) = run(
+        root,
+        &[
+            "artifact",
+            "diff",
+            "--instance",
+            id,
+            "--node",
+            "任务调研",
+            "--context",
+            "1",
+            "--json",
+        ],
+    );
+    assert!(ok, "diff separator json failed: {err}");
+    assert!(out.contains("separator"), "应包含 separator 类型: {out}");
+
+    let (ok, out, err) = run(
+        root,
+        &[
+            "artifact",
+            "diff",
+            "--instance",
+            id,
+            "--node",
+            "任务调研",
+            "--context",
+            "1",
+        ],
+    );
+    assert!(ok, "diff separator text failed: {err}");
+    assert!(out.contains("..."), "应包含 separator 标记: {out}");
+}
+
+#[test]
+fn diff_multiple_pairs_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "第一次"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "第二次"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "第三次"]);
+
+    let (ok, out, err) = run(
+        root,
+        &["artifact", "diff", "--instance", id, "--node", "任务调研"],
+    );
+    assert!(ok, "diff multiple pairs failed: {err}");
+    assert!(out.contains("第一次"), "应包含第一次: {out}");
+    assert!(out.contains("第二次"), "应包含第二次: {out}");
+    assert!(out.contains("第三次"), "应包含第三次: {out}");
+}
+
+#[test]
+fn diff_max_lines_exceeded() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let big: String = (0..5001)
+        .map(|i| format!("line-{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", "理解"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", &big]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+    run(root, &["next", "--instance", id]);
+    run(root, &["complete", "--instance", id, "--output", &big]);
+
+    let (ok, _, err) = run(
+        root,
+        &["artifact", "diff", "--instance", id, "--node", "任务调研"],
+    );
+    assert!(!ok);
+    assert!(err.contains("超过"), "应报错行数超限: {err}");
+}
+
+#[test]
+fn timeline_context_no_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+
+    let ctx_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("context.md");
+    std::fs::create_dir_all(ctx_path.parent().unwrap()).unwrap();
+    std::fs::write(&ctx_path, "## 手动上下文\n\n无尾随换行").unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id]);
+    assert!(ok, "timeline no-trailing-newline failed: {err}");
+    assert!(out.contains("无尾随换行"), "应包含 context 内容: {out}");
+}
+
+#[test]
+fn view_empty_detail_md() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+
+    let artifacts_dir = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("artifacts")
+        .join("任务理解");
+    let invoke_dir: std::path::PathBuf = std::fs::read_dir(&artifacts_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .find(|e| e.path().is_dir())
+        .unwrap()
+        .path();
+    std::fs::write(invoke_dir.join("detail.md"), "").unwrap();
+
+    let (ok, out, err) = run(
+        root,
+        &[
+            "artifact",
+            "view",
+            "--instance",
+            id,
+            "--node",
+            "任务理解",
+            "--json",
+        ],
+    );
+    assert!(ok, "view empty detail failed: {err}");
+    assert!(
+        out.contains("null"),
+        "空 detail.md content 应为 null: {out}"
+    );
+}
+
+#[test]
+fn search_and_timeline_with_end_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "没问题"]);
+    run(root, &["next", "--instance", id]);
+
+    let (ok, _, err) = run(
+        root,
+        &["artifact", "search", "--instance", id, "--keyword", "产物"],
+    );
+    assert!(ok, "search with end failed: {err}");
+
+    let (ok, out, err) = run(root, &["artifact", "timeline", "--instance", id]);
+    assert!(ok, "timeline with end failed: {err}");
+    assert!(out.contains("结束"), "应包含 end 节点: {out}");
+}
+
+#[test]
+fn view_empty_error_md() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(root, &["fail", "--instance", id, "--reason", "失败原因"]);
+
+    let artifacts_dir = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("artifacts")
+        .join("任务理解");
+    let invoke_dir: std::path::PathBuf = std::fs::read_dir(&artifacts_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .find(|e| e.path().is_dir())
+        .unwrap()
+        .path();
+    std::fs::write(invoke_dir.join("error.md"), "").unwrap();
+
+    let (ok, out, err) = run(
+        root,
+        &[
+            "artifact",
+            "view",
+            "--instance",
+            id,
+            "--node",
+            "任务理解",
+            "--json",
+        ],
+    );
+    assert!(ok, "view empty error failed: {err}");
+    assert!(out.contains("null"), "空 error.md content 应为 null: {out}");
+}
