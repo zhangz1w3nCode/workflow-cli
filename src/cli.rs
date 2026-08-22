@@ -62,6 +62,10 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// 产物查询与搜索
+    Artifact(ArtifactArgs),
+    /// 暂存或查看 Agent 上下文
+    Context(ContextArgs),
 }
 
 #[derive(Args)]
@@ -88,4 +92,87 @@ pub struct InstanceArgs {
     /// instance list 的工作流筛选
     #[arg(long)]
     pub workflow: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ArtifactArgs {
+    #[command(subcommand)]
+    pub action: ArtifactAction,
+}
+
+#[derive(Subcommand)]
+pub enum ArtifactAction {
+    /// 列出实例所有产物元数据
+    List {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 查看某个产物的完整内容
+    View {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        node: Option<String>,
+        #[arg(long)]
+        invoke: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 关键词搜索产物
+    Search {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        keyword: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 获取执行时间线及所有产物内容（恢复用）
+    Timeline {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 对比重入节点的多次执行产物
+    Diff {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        node: String,
+        #[arg(long, default_value_t = 3)]
+        context: usize,
+        #[arg(long)]
+        full: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct ContextArgs {
+    #[command(subcommand)]
+    pub action: ContextAction,
+}
+
+#[derive(Subcommand)]
+pub enum ContextAction {
+    /// 追加暂存 Agent 上下文
+    Set {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        topic: String,
+        #[arg(long)]
+        content: String,
+    },
+    /// 查看 Agent 上下文
+    Get {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        json: bool,
+    },
 }

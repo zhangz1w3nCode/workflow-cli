@@ -77,6 +77,13 @@ workflow status --instance 20260818T003758-038b
 | `workflow fail` | 标记失败 | 是 |
 | `workflow choose` | 决策分支选择 | 是 |
 | `workflow status` | 查看进度 | 是 |
+| `workflow artifact list` | 列出实例所有产物元数据 | 是 |
+| `workflow artifact view` | 查看产物完整内容 | 是 |
+| `workflow artifact search` | 关键词搜索产物 | 是 |
+| `workflow artifact timeline` | 获取执行时间线及所有产物 | 是 |
+| `workflow artifact diff` | 对比重入节点多次执行产物 | 是 |
+| `workflow context set` | 追加暂存 Agent 上下文 | 是 |
+| `workflow context get` | 查看 Agent 上下文 | 是 |
 
 完整签名：
 
@@ -102,6 +109,23 @@ workflow fail --instance <id> --reason "失败原因"
 workflow choose --instance <id> --branch "分支名" [--reason "理由"]
 
 workflow status --instance <id> [--json]
+
+workflow artifact list --instance <id> [--json]
+
+workflow artifact view --instance <id>
+    [--node <name>]                       # 按节点名查看（环回时返回全部）
+    [--invoke <id>]                      # 按执行ID精确查看（优先于 --node）
+    [--json]
+
+workflow artifact search --instance <id> --keyword <kw> [--json]
+
+workflow artifact timeline --instance <id> [--json]
+
+workflow artifact diff --instance <id> --node <name> [--context <n>] [--full] [--json]
+
+workflow context set --instance <id> --topic "..." --content "..."
+
+workflow context get --instance <id> [--json]
 ```
 
 ## 实例目录结构
@@ -121,6 +145,18 @@ workflow status --instance <id> [--json]
 - **invoke 隔离**：每次执行生成唯一时间戳 `invoke-YYYYMMDD-HHMMSS-毫秒`，环回重入产物目录彻底隔离。
 - **产物双保险**：`complete` 强制带产物（主闸），`next` 兜底校验上一个节点产物。
 - **decision 显式选择**：decision 节点由 CLI 渲染条件与分支，Agent 调 `choose`；分支 `description` 非空视为 catch-all，触发环回计数。
+
+## 产物查询
+
+`workflow artifact` 提供只读的产物查询与搜索能力，用于 Agent 中断恢复时还原执行路径。所有输出按执行顺序排列，不暴露文件系统路径，仅以 `(节点名, 执行ID)` 作为逻辑引用。
+
+- **list**：列出实例所有产物元数据（节点、执行ID、类型、状态、时间）
+- **view**：按节点名或执行ID查看产物完整内容
+- **search**：关键词搜索产物内容，返回命中的节点列表
+- **timeline**：一键获取执行时间线 + 所有产物完整内容，用于恢复注入
+- **diff**：对环回重入节点的相邻两次执行产物做行级 diff（LCS 算法，无外部依赖）
+- **context set**：追加暂存 Agent 上下文（主题 + 内容），写入 context.md
+- **context get**：读取全部暂存上下文；timeline 自动包含上下文段
 
 ## 开发
 
