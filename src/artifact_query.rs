@@ -30,7 +30,7 @@ struct ArtifactEntry {
     branch: Option<String>,
 }
 
-fn collect_entries(root: &Path, workflow: &str, instance_id: &str) -> Result<Vec<ArtifactEntry>, String> {
+fn collect_entries(root: &Path, workflow: &str, instance_id: &str) -> Result<(Vec<ArtifactEntry>, ProcessFile), String> {
     let pf = ProcessFile::read(&instance_dir(root, workflow, instance_id).join("process.md"))?;
     let mut entries = Vec::new();
     for (i, event) in pf.trace.iter().enumerate() {
@@ -58,7 +58,7 @@ fn collect_entries(root: &Path, workflow: &str, instance_id: &str) -> Result<Vec
             branch: event.branch.clone(),
         });
     }
-    Ok(entries)
+    Ok((entries, pf))
 }
 
 fn read_content(root: &Path, workflow: &str, instance_id: &str, node: &str, invoke: &str) -> Result<Option<(ArtifactType, String)>, String> {
@@ -90,8 +90,7 @@ fn node_display(node: &str, branch: &Option<String>) -> String {
 }
 
 pub fn list(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Result<String, String> {
-    let entries = collect_entries(root, workflow, instance_id)?;
-    let pf = ProcessFile::read(&instance_dir(root, workflow, instance_id).join("process.md"))?;
+    let (entries, pf) = collect_entries(root, workflow, instance_id)?;
 
     if json {
         let artifacts: Vec<_> = entries.iter().map(|e| serde_json::json!({
@@ -122,7 +121,7 @@ pub fn list(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
 }
 
 pub fn view(root: &Path, workflow: &str, instance_id: &str, node: Option<&str>, invoke: Option<&str>, json: bool) -> Result<String, String> {
-    let entries = collect_entries(root, workflow, instance_id)?;
+    let (entries, _) = collect_entries(root, workflow, instance_id)?;
 
     let matched: Vec<&ArtifactEntry> = if let Some(inv) = invoke {
         entries.iter().filter(|e| e.invoke == inv).collect()
@@ -196,7 +195,10 @@ pub fn view(root: &Path, workflow: &str, instance_id: &str, node: Option<&str>, 
 }
 
 pub fn search(root: &Path, workflow: &str, instance_id: &str, keyword: &str, json: bool) -> Result<String, String> {
-    let entries = collect_entries(root, workflow, instance_id)?;
+    if keyword.is_empty() {
+        return Err("搜索关键词不能为空".into());
+    }
+    let (entries, _) = collect_entries(root, workflow, instance_id)?;
 
     let mut results: Vec<&ArtifactEntry> = Vec::new();
     for e in &entries {
@@ -239,8 +241,7 @@ pub fn search(root: &Path, workflow: &str, instance_id: &str, keyword: &str, jso
 }
 
 pub fn timeline(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Result<String, String> {
-    let entries = collect_entries(root, workflow, instance_id)?;
-    let pf = ProcessFile::read(&instance_dir(root, workflow, instance_id).join("process.md"))?;
+    let (entries, pf) = collect_entries(root, workflow, instance_id)?;
 
     let mut results: Vec<(&ArtifactEntry, Option<(ArtifactType, String)>)> = Vec::new();
     for e in &entries {
@@ -425,7 +426,7 @@ fn apply_context_limit(diff: &[DiffLine], context: usize) -> Vec<DiffLine> {
 }
 
 pub fn diff(root: &Path, workflow: &str, instance_id: &str, node: &str, json: bool, context: usize, full: bool) -> Result<String, String> {
-    let entries = collect_entries(root, workflow, instance_id)?;
+    let (entries, _) = collect_entries(root, workflow, instance_id)?;
     let matched: Vec<&ArtifactEntry> = entries.iter().filter(|e| e.node == node).collect();
 
     if matched.len() < 2 {
@@ -445,6 +446,10 @@ pub fn diff(root: &Path, workflow: &str, instance_id: &str, node: &str, json: bo
         let (e2, c2) = &contents[i + 1];
         let text1 = c1.as_deref().unwrap_or("");
         let text2 = c2.as_deref().unwrap_or("");
+        const MAX_DIFF_LINES: usize = 5000;
+        if text1.lines().count() > MAX_DIFF_LINES || text2.lines().count() > MAX_DIFF_LINES {
+            return Err(format!("产物行数超过 {MAX_DIFF_LINES} 行上限，已跳过 diff 计算"));
+        }
         let raw = compute_diff(text1, text2);
         let display = if full { raw } else { apply_context_limit(&raw, context) };
         diffs.push((e1, e2, display));
@@ -502,6 +507,13 @@ pub fn diff(root: &Path, workflow: &str, instance_id: &str, node: &str, json: bo
 }
 
 pub fn context_set(root: &Path, workflow: &str, instance_id: &str, topic: &str, content: &str) -> Result<String, String> {
+    if topic.is_empty() {
+        return Err("topic 不能为空".into());
+    }
+    if content.is_empty() {
+        return Err("content 不能为空".into());
+    }
+    let topic = topic.replace(['\n', '\r'], " ");
     let path = instance_dir(root, workflow, instance_id).join("context.md");
     let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
     let entry = format!("## [{}] {}\n\n{}\n", time, topic, content);
@@ -539,4 +551,35 @@ pub fn context_get(root: &Path, workflow: &str, instance_id: &str, json: bool) -
         })).map_err(|e| format!("序列化失败: {e}"));
     }
     Ok(content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_diff_identical() {
+        let result = compute_diff("aaa\nbbb", "aaa\nbbb");
+        assert!(result.iter().all(|l| matches!(l, DiffLine::Context(_))));
+    }
+
+    #[test]
+    fn compute_diff_empty() {
+        let result = compute_diff("", "");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn compute_diff_add_only() {
+        let result = compute_diff("", "aaa");
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], DiffLine::Added(_)));
+    }
+
+    #[test]
+    fn compute_diff_remove_only() {
+        let result = compute_diff("aaa", "");
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], DiffLine::Removed(_)));
+    }
 }
