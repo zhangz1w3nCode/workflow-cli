@@ -1,15 +1,22 @@
-use std::path::{Path, PathBuf};
 use crate::artifact;
 use crate::graph::Graph;
 use crate::model::Flow;
 use crate::state::{ProcessFile, Status};
+use std::path::{Path, PathBuf};
 
 fn instance_dir(root: &Path, workflow: &str, instance_id: &str) -> PathBuf {
-    root.join(".workflows").join(workflow).join("instance").join(instance_id)
+    root.join(".workflows")
+        .join(workflow)
+        .join("instance")
+        .join(instance_id)
 }
 
 fn load_flow(root: &Path, workflow: &str) -> Result<Flow, String> {
-    let path = root.join(".workflows").join(workflow).join("meta-data").join("flow.json");
+    let path = root
+        .join(".workflows")
+        .join(workflow)
+        .join("meta-data")
+        .join("flow.json");
     Flow::from_file(&path)
 }
 
@@ -27,14 +34,30 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
     if node.node_type == "end" {
         pf.state.status = Status::Completed;
         pf.append_trace("completed", &node.data.label, "-", None);
+        crate::state::log_trace(
+            &inst_dir,
+            crate::state::TraceLogEntry {
+                ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+                command: "next".into(),
+                node: Some(node.data.label.clone()),
+                invoke: Some("-".into()),
+                status: Some("completed".into()),
+                branch: None,
+            },
+        )?;
         pf.mermaid = render_mermaid(&flow, &pf.state);
         pf.write(&inst_dir.join("process.md"))?;
         return Ok("工作流已完成".into());
     }
 
-    if let (Some(last_node), Some(last_invoke)) = (pf.state.last_node.as_deref(), pf.state.last_invoke.as_deref()) {
+    if let (Some(last_node), Some(last_invoke)) = (
+        pf.state.last_node.as_deref(),
+        pf.state.last_invoke.as_deref(),
+    ) {
         if !artifact::has_detail(root, workflow, instance_id, last_node, last_invoke) {
-            return Err(format!("节点 {last_node} ({last_invoke}) 未写入产物，请补写后再 next"));
+            return Err(format!(
+                "节点 {last_node} ({last_invoke}) 未写入产物，请补写后再 next"
+            ));
         }
     }
 
@@ -54,13 +77,29 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
     };
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("active", &node.data.label, &invoke, None);
+    crate::state::log_trace(
+        &inst_dir,
+        crate::state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+            command: "next".into(),
+            node: Some(node.data.label.clone()),
+            invoke: Some(invoke.clone()),
+            status: Some("active".into()),
+            branch: None,
+        },
+    )?;
     pf.mermaid = render_mermaid(&flow, &pf.state);
     pf.write(&inst_dir.join("process.md"))?;
 
     Ok(render_node(root, node, &pf.state.current_invoke, json))
 }
 
-pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) -> Result<String, String> {
+pub fn complete(
+    root: &Path,
+    workflow: &str,
+    instance_id: &str,
+    output: &str,
+) -> Result<String, String> {
     let inst_dir = instance_dir(root, workflow, instance_id);
     let mut pf = ProcessFile::read(&inst_dir.join("process.md"))?;
 
@@ -74,11 +113,29 @@ pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) ->
     let flow = load_flow(root, workflow)?;
     let graph = Graph::new(&flow);
 
-    artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, output)?;
+    artifact::write_detail(
+        root,
+        workflow,
+        instance_id,
+        &pf.state.current_name,
+        &pf.state.current_invoke,
+        output,
+    )?;
 
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("completed", &name, &invoke, None);
+    crate::state::log_trace(
+        &inst_dir,
+        crate::state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+            command: "complete".into(),
+            node: Some(name.clone()),
+            invoke: Some(invoke.clone()),
+            status: Some("completed".into()),
+            branch: None,
+        },
+    )?;
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }
@@ -100,7 +157,12 @@ pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) ->
     Ok(format!("已推进到 {}", next_node.data.label))
 }
 
-pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Result<String, String> {
+pub fn fail(
+    root: &Path,
+    workflow: &str,
+    instance_id: &str,
+    reason: &str,
+) -> Result<String, String> {
     let inst_dir = instance_dir(root, workflow, instance_id);
     let mut pf = ProcessFile::read(&inst_dir.join("process.md"))?;
 
@@ -110,10 +172,28 @@ pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Res
 
     let flow = load_flow(root, workflow)?;
 
-    artifact::write_error(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, reason)?;
+    artifact::write_error(
+        root,
+        workflow,
+        instance_id,
+        &pf.state.current_name,
+        &pf.state.current_invoke,
+        reason,
+    )?;
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("failed", &name, &invoke, None);
+    crate::state::log_trace(
+        &inst_dir,
+        crate::state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+            command: "fail".into(),
+            node: Some(name.clone()),
+            invoke: Some(invoke.clone()),
+            status: Some("failed".into()),
+            branch: None,
+        },
+    )?;
 
     pf.state.retry_count += 1;
     if let Err(msg) = crate::limits::check_retry_limit(&pf.state) {
@@ -133,7 +213,13 @@ pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Res
     Ok("已标记失败，可重新 next 重试".into())
 }
 
-pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reason: Option<&str>) -> Result<String, String> {
+pub fn choose(
+    root: &Path,
+    workflow: &str,
+    instance_id: &str,
+    branch: &str,
+    reason: Option<&str>,
+) -> Result<String, String> {
     let inst_dir = instance_dir(root, workflow, instance_id);
     let mut pf = ProcessFile::read(&inst_dir.join("process.md"))?;
 
@@ -154,15 +240,38 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
         Some(r) => format!("## 选择分支\n- {branch}\n\n## 理由\n- {r}"),
         None => format!("## 选择分支\n- {branch}"),
     };
-    artifact::write_detail(root, workflow, instance_id, &pf.state.current_name, &pf.state.current_invoke, &detail)?;
+    artifact::write_detail(
+        root,
+        workflow,
+        instance_id,
+        &pf.state.current_name,
+        &pf.state.current_invoke,
+        &detail,
+    )?;
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("completed", &name, &invoke, Some(branch));
+    crate::state::log_trace(
+        &inst_dir,
+        crate::state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+            command: "choose".into(),
+            node: Some(name.clone()),
+            invoke: Some(invoke.clone()),
+            status: Some("completed".into()),
+            branch: Some(branch.to_string()),
+        },
+    )?;
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }
 
-    let branch_id = node.data.branches.iter().find(|b| b.name == branch).map(|b| b.id.as_str());
+    let branch_id = node
+        .data
+        .branches
+        .iter()
+        .find(|b| b.name == branch)
+        .map(|b| b.id.as_str());
     if let Some(bid) = branch_id {
         if graph.is_loop_back(&pf.state.current, bid, &pf.state.completed) {
             pf.state.loop_count += 1;
@@ -189,10 +298,18 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
 
     pf.mermaid = render_mermaid(&flow, &pf.state);
     pf.write(&inst_dir.join("process.md"))?;
-    Ok(format!("已选择分支 {branch}，推进到 {}", next_node.data.label))
+    Ok(format!(
+        "已选择分支 {branch}，推进到 {}",
+        next_node.data.label
+    ))
 }
 
-pub fn status(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Result<String, String> {
+pub fn status(
+    root: &Path,
+    workflow: &str,
+    instance_id: &str,
+    json: bool,
+) -> Result<String, String> {
     let inst_dir = instance_dir(root, workflow, instance_id);
     let pf = ProcessFile::read(&inst_dir.join("process.md"))?;
     let s = &pf.state;
@@ -235,7 +352,11 @@ pub fn list_instances(root: &Path, workflow_filter: Option<&str>) -> Result<Stri
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.is_dir())
-        .filter(|p| workflow_filter.map(|w| p.file_name().and_then(|n| n.to_str()) == Some(w)).unwrap_or(true))
+        .filter(|p| {
+            workflow_filter
+                .map(|w| p.file_name().and_then(|n| n.to_str()) == Some(w))
+                .unwrap_or(true)
+        })
         .collect();
 
     for wf_dir in wf_dirs {
@@ -273,14 +394,16 @@ fn render_node(root: &Path, node: &crate::model::Node, invoke: &str, json: bool)
                 "branches": node.data.branches.iter().map(|b| {
                     serde_json::json!({"name": b.name, "description": b.description})
                 }).collect::<Vec<_>>()
-            }).to_string(),
+            })
+            .to_string(),
             _ => serde_json::json!({
                 "type": node.node_type,
                 "node_id": node.id,
                 "node_name": node.data.label,
                 "invoke": invoke,
                 "content": read_node_md(root, node)
-            }).to_string(),
+            })
+            .to_string(),
         };
     }
 
@@ -303,21 +426,32 @@ fn render_node(root: &Path, node: &crate::model::Node, invoke: &str, json: bool)
 
 fn read_node_md(root: &Path, node: &crate::model::Node) -> String {
     if node.node_type == "process" {
-        return node.data.content.clone().unwrap_or_else(|| format!("process 节点 {} 缺少 content", node.data.label));
+        return node
+            .data
+            .content
+            .clone()
+            .unwrap_or_else(|| format!("process 节点 {} 缺少 content", node.data.label));
     }
     let ref_path = node.data.node_ref_path.as_deref().unwrap_or("");
     if ref_path.is_empty() {
         return format!("节点 {} 缺少 nodeRefPath", node.data.label);
     }
     let full = root.join(ref_path);
-    std::fs::read_to_string(&full).unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()))
+    std::fs::read_to_string(&full)
+        .unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()))
 }
 
 /// Mermaid 节点 ID 不允许包含空格及多数特殊字符；把非 [字母/数字/_] 的字符统一替换为下划线，
 /// 避免带空格/标点的节点 label 被直接当作 ID 导致 mermaid 解析失败。
 fn mermaid_id(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -348,7 +482,8 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String
         let dst = node_ref_name(flow, &edge.target);
         match &edge.branch_id {
             Some(bid) => {
-                let branch_name = flow.node(&edge.source)
+                let branch_name = flow
+                    .node(&edge.source)
                     .and_then(|n| n.data.branches.iter().find(|b| &b.id == bid))
                     .map(|b| b.name.as_str())
                     .unwrap_or("");
@@ -379,7 +514,9 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String
             } else {
                 pending_nodes.push(name);
             }
-        } else if state.current_name == node.data.label && state.status != crate::state::Status::Completed {
+        } else if state.current_name == node.data.label
+            && state.status != crate::state::Status::Completed
+        {
             current_nodes.push(name);
         } else if state.completed.contains(&node.data.label) {
             done_nodes.push(name);
@@ -469,7 +606,9 @@ mod tests {
         let root = dir.path();
         let wf = root.join(".workflows/wf");
         std::fs::create_dir_all(wf.join("meta-data")).unwrap();
-        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+        std::fs::write(
+            wf.join("meta-data/flow.json"),
+            r#"{
           "nodes": [
             {"id":"start","type":"start","data":{"label":"开始"}},
             {"id":"end","type":"end","data":{"label":"结束"}},
@@ -477,7 +616,9 @@ mod tests {
           ],
           "edges": [{"id":"e1","source":"start","target":"p","type":"default"},
                     {"id":"e2","source":"p","target":"end","type":"default"}]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
         let out = next(root, "wf", "i1", false).unwrap();
         assert!(out.contains("详细审核代码看看"));
@@ -489,7 +630,9 @@ mod tests {
         let root = dir.path();
         let wf = root.join(".workflows/wf");
         std::fs::create_dir_all(wf.join("meta-data")).unwrap();
-        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+        std::fs::write(
+            wf.join("meta-data/flow.json"),
+            r#"{
           "nodes": [
             {"id":"start","type":"start","data":{"label":"开始"}},
             {"id":"end","type":"end","data":{"label":"结束"}},
@@ -497,7 +640,9 @@ mod tests {
           ],
           "edges": [{"id":"e1","source":"start","target":"a","type":"default"},
                     {"id":"e2","source":"a","target":"end","type":"default"}]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
         let out = next(root, "wf", "i1", false).unwrap();
         assert!(out.contains("缺少 nodeRefPath"));
@@ -534,8 +679,14 @@ mod tests {
             limits: Limits::default(),
         };
         let mermaid = render_mermaid(&flow, &state);
-        assert!(mermaid.contains("d{检测 审核}"), "节点 ID 应为安全标识而非带空格的 label:\n{mermaid}");
-        assert!(!mermaid.contains("检测 审核{检测 审核}"), "节点 ID 不应包含空格:\n{mermaid}");
+        assert!(
+            mermaid.contains("d{检测 审核}"),
+            "节点 ID 应为安全标识而非带空格的 label:\n{mermaid}"
+        );
+        assert!(
+            !mermaid.contains("检测 审核{检测 审核}"),
+            "节点 ID 不应包含空格:\n{mermaid}"
+        );
     }
 
     #[test]
@@ -568,10 +719,10 @@ mod tests {
         std::fs::write(root.join(".nodes/任务理解.md"), "# 任务\n- 理解任务\n").unwrap();
 
         instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
-        next(root, "wf", "i1", false).unwrap();           // 任务理解 (business)
-        complete(root, "wf", "i1", "理解产物").unwrap();   // -> 查类型
-        next(root, "wf", "i1", false).unwrap();           // 查类型 (decision)
-        choose(root, "wf", "i1", "其他", None).unwrap();   // 正向 -> 搜索代码库
+        next(root, "wf", "i1", false).unwrap(); // 任务理解 (business)
+        complete(root, "wf", "i1", "理解产物").unwrap(); // -> 查类型
+        next(root, "wf", "i1", false).unwrap(); // 查类型 (decision)
+        choose(root, "wf", "i1", "其他", None).unwrap(); // 正向 -> 搜索代码库
 
         let pf = ProcessFile::read(&root.join(".workflows/wf/instance/i1/process.md")).unwrap();
         assert_eq!(pf.state.loop_count, 0);
@@ -583,7 +734,9 @@ mod tests {
         let root = dir.path();
         let wf = root.join(".workflows/wf");
         std::fs::create_dir_all(wf.join("meta-data")).unwrap();
-        std::fs::write(wf.join("meta-data/flow.json"), r#"{
+        std::fs::write(
+            wf.join("meta-data/flow.json"),
+            r#"{
           "nodes": [
             {"id":"start","type":"start","data":{"label":"开始"}},
             {"id":"end","type":"end","data":{"label":"结束"}},
@@ -601,19 +754,21 @@ mod tests {
             {"id":"e4","source":"d","target":"b","branchId":"other","type":"default"},
             {"id":"e5","source":"d","target":"end","branchId":"ok","type":"default"}
           ]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         std::fs::write(wf.join("WORKFLOW.md"), "# workflow\n").unwrap();
         std::fs::create_dir_all(root.join(".nodes")).unwrap();
         std::fs::write(root.join(".nodes/调研.md"), "# 调研\n- 调研\n").unwrap();
         std::fs::write(root.join(".nodes/写方案.md"), "# 写方案\n- 写方案\n").unwrap();
 
         instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
-        next(root, "wf", "i1", false).unwrap();           // 调研
-        complete(root, "wf", "i1", "调研产物").unwrap();   // -> 写方案
-        next(root, "wf", "i1", false).unwrap();           // 写方案
-        complete(root, "wf", "i1", "方案产物").unwrap();   // -> 审核
-        next(root, "wf", "i1", false).unwrap();           // 审核 (decision)
-        choose(root, "wf", "i1", "其他", None).unwrap();   // 回流 -> 写方案
+        next(root, "wf", "i1", false).unwrap(); // 调研
+        complete(root, "wf", "i1", "调研产物").unwrap(); // -> 写方案
+        next(root, "wf", "i1", false).unwrap(); // 写方案
+        complete(root, "wf", "i1", "方案产物").unwrap(); // -> 审核
+        next(root, "wf", "i1", false).unwrap(); // 审核 (decision)
+        choose(root, "wf", "i1", "其他", None).unwrap(); // 回流 -> 写方案
 
         let pf = ProcessFile::read(&root.join(".workflows/wf/instance/i1/process.md")).unwrap();
         assert_eq!(pf.state.loop_count, 1);

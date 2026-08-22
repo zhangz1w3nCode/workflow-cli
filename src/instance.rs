@@ -1,9 +1,15 @@
-use std::path::Path;
 use crate::graph::Graph;
 use crate::model::Flow;
 use crate::state::{Limits, ProcessFile, ProcessState, Status};
+use std::path::Path;
 
-pub fn create(root: &Path, workflow: &str, instance_id: &str, input: Option<&str>, limits: Limits) -> Result<String, String> {
+pub fn create(
+    root: &Path,
+    workflow: &str,
+    instance_id: &str,
+    input: Option<&str>,
+    limits: Limits,
+) -> Result<String, String> {
     let wf_dir = root.join(".workflows").join(workflow);
     let flow_path = wf_dir.join("meta-data").join("flow.json");
     let flow = Flow::from_file(&flow_path)?;
@@ -40,8 +46,23 @@ pub fn create(root: &Path, workflow: &str, instance_id: &str, input: Option<&str
     };
 
     let mermaid = crate::executor::render_mermaid(&flow, &state);
-    let pf = ProcessFile { state, mermaid, trace: Vec::new() };
+    let pf = ProcessFile {
+        state,
+        mermaid,
+        trace: Vec::new(),
+    };
     pf.write(&inst_dir.join("process.md"))?;
+    crate::state::log_trace(
+        &inst_dir,
+        crate::state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+            command: "instance create".into(),
+            node: None,
+            invoke: None,
+            status: None,
+            branch: None,
+        },
+    )?;
 
     Ok(instance_id.to_string())
 }
