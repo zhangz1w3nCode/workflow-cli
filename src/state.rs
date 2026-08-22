@@ -503,4 +503,13 @@ mod tests {
         assert_eq!(trace.len(), 1);
         assert_eq!(trace[0].branch.as_deref(), Some("没问题"));
     }
+
+    #[test]
+    fn read_trace_jsonl_io_error_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().join("not_a_file");
+        std::fs::create_dir_all(&dir_path).unwrap();
+        let result = read_trace_jsonl(&dir_path);
+        assert!(result.is_empty());
+    }
 }

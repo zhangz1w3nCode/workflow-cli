@@ -1,12 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub fn artifact_dir(
-    root: &Path,
-    workflow: &str,
-    instance_id: &str,
-    node_name: &str,
-    invoke: &str,
-) -> PathBuf {
+pub fn artifact_dir(root: &Path, workflow: &str, instance_id: &str, node_name: &str, invoke: &str) -> PathBuf {
     root.join(".workflows")
         .join(workflow)
         .join("instance")
@@ -16,14 +10,7 @@ pub fn artifact_dir(
         .join(invoke)
 }
 
-pub fn write_detail(
-    root: &Path,
-    workflow: &str,
-    instance_id: &str,
-    node_name: &str,
-    invoke: &str,
-    content: &str,
-) -> Result<PathBuf, String> {
+pub fn write_detail(root: &Path, workflow: &str, instance_id: &str, node_name: &str, invoke: &str, content: &str) -> Result<PathBuf, String> {
     let dir = artifact_dir(root, workflow, instance_id, node_name, invoke);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建产物目录失败: {e}"))?;
     let path = dir.join("detail.md");
@@ -31,14 +18,7 @@ pub fn write_detail(
     Ok(path)
 }
 
-pub fn write_error(
-    root: &Path,
-    workflow: &str,
-    instance_id: &str,
-    node_name: &str,
-    invoke: &str,
-    reason: &str,
-) -> Result<PathBuf, String> {
+pub fn write_error(root: &Path, workflow: &str, instance_id: &str, node_name: &str, invoke: &str, reason: &str) -> Result<PathBuf, String> {
     let dir = artifact_dir(root, workflow, instance_id, node_name, invoke);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建产物目录失败: {e}"))?;
     let path = dir.join("error.md");
@@ -46,18 +26,9 @@ pub fn write_error(
     Ok(path)
 }
 
-pub fn has_detail(
-    root: &Path,
-    workflow: &str,
-    instance_id: &str,
-    node_name: &str,
-    invoke: &str,
-) -> bool {
+pub fn has_detail(root: &Path, workflow: &str, instance_id: &str, node_name: &str, invoke: &str) -> bool {
     let path = artifact_dir(root, workflow, instance_id, node_name, invoke).join("detail.md");
-    path.exists()
-        && std::fs::metadata(&path)
-            .map(|m| m.len() > 0)
-            .unwrap_or(false)
+    path.exists() && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
 }
 
 #[cfg(test)]

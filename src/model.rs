@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use std::path::Path;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Flow {
@@ -48,7 +48,8 @@ impl Flow {
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("读取 flow.json 失败 {}: {e}", path.display()))?;
-        serde_json::from_str(&content).map_err(|e| format!("解析 flow.json 失败: {e}"))
+        serde_json::from_str(&content)
+            .map_err(|e| format!("解析 flow.json 失败: {e}"))
     }
 
     pub fn node(&self, id: &str) -> Option<&Node> {
@@ -94,10 +95,7 @@ mod tests {
         let flow: Flow = serde_json::from_str(FLOW).unwrap();
         let d = flow.node("d-1").unwrap();
         assert_eq!(d.data.branches.len(), 2);
-        assert_eq!(
-            d.data.branches[1].description.as_deref(),
-            Some("均不符合上述分类的进入本分支")
-        );
+        assert_eq!(d.data.branches[1].description.as_deref(), Some("均不符合上述分类的进入本分支"));
     }
 
     #[test]

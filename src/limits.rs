@@ -31,24 +31,11 @@ mod tests {
 
     fn state_with(step: usize, loop_count: usize, retry_count: usize) -> ProcessState {
         ProcessState {
-            workflow: "w".into(),
-            instance_id: "i".into(),
-            initial_input: None,
-            status: Status::Idle,
-            current: "a".into(),
-            current_name: "A".into(),
-            current_invoke: "invoke-1".into(),
-            step,
-            loop_count,
-            retry_count,
-            last_node: None,
-            last_invoke: None,
-            completed: vec![],
-            limits: Limits {
-                max_steps: 100,
-                max_loop: 10,
-                max_retry: 2,
-            },
+            workflow: "w".into(), instance_id: "i".into(), initial_input: None,
+            status: Status::Idle, current: "a".into(), current_name: "A".into(),
+            current_invoke: "invoke-1".into(), step, loop_count, retry_count,
+            last_node: None, last_invoke: None, completed: vec![],
+            limits: Limits { max_steps: 100, max_loop: 10, max_retry: 2 },
         }
     }
 
