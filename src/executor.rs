@@ -338,7 +338,22 @@ fn node_ref_name(flow: &Flow, id: &str) -> String {
 pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String {
     let mut s = String::from("```mermaid\nflowchart TD\n\n");
 
+    // Build visited set: only nodes that have been reached during execution
+    let mut visited = std::collections::HashSet::new();
+    visited.insert("开始".to_string()); // start node always visited
+    for label in &state.completed {
+        visited.insert(label.clone());
+    }
+    // Current node is visited only if it's been next'd to (not Idle)
+    if state.status != crate::state::Status::Idle {
+        visited.insert(state.current_name.clone());
+    }
+
+    // Render only visited nodes
     for node in &flow.nodes {
+        if !visited.contains(&node.data.label) {
+            continue;
+        }
         let name = node_ref_name(flow, &node.id);
         match node.node_type.as_str() {
             "start" | "end" => s.push_str(&format!("    {name}([{}])\n", node.data.label)),
@@ -348,7 +363,13 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String
     }
     s.push('\n');
 
+    // Render only edges where both endpoints are visited
     for edge in &flow.edges {
+        let src_visited = flow.node(&edge.source).map(|n| visited.contains(&n.data.label)).unwrap_or(false);
+        let dst_visited = flow.node(&edge.target).map(|n| visited.contains(&n.data.label)).unwrap_or(false);
+        if !src_visited || !dst_visited {
+            continue;
+        }
         let src = node_ref_name(flow, &edge.source);
         let dst = node_ref_name(flow, &edge.target);
         match &edge.branch_id {
@@ -367,29 +388,24 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String
     s.push('\n');
 
     s.push_str("    classDef done fill:#4caf50,color:#fff;\n");
-    s.push_str("    classDef current fill:#ff9800,color:#fff;\n");
-    s.push_str("    classDef pending fill:#f5f5f5,color:#333;\n\n");
+    s.push_str("    classDef current fill:#ff9800,color:#fff;\n\n");
 
     let mut done_nodes = Vec::new();
     let mut current_nodes = Vec::new();
-    let mut pending_nodes = Vec::new();
 
     for node in &flow.nodes {
+        if !visited.contains(&node.data.label) {
+            continue;
+        }
         let name = node_ref_name(flow, &node.id);
         if node.node_type == "start" {
             done_nodes.push(name);
-        } else if node.node_type == "end" {
-            if state.status == crate::state::Status::Completed {
-                done_nodes.push(name);
-            } else {
-                pending_nodes.push(name);
-            }
+        } else if node.node_type == "end" && state.status == crate::state::Status::Completed {
+            done_nodes.push(name);
         } else if state.current_name == node.data.label && state.status != crate::state::Status::Completed {
             current_nodes.push(name);
         } else if state.completed.contains(&node.data.label) {
             done_nodes.push(name);
-        } else {
-            pending_nodes.push(name);
         }
     }
 
@@ -398,9 +414,6 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState) -> String
     }
     if !current_nodes.is_empty() {
         s.push_str(&format!("    class {} current;\n", current_nodes.join(",")));
-    }
-    if !pending_nodes.is_empty() {
-        s.push_str(&format!("    class {} pending;\n", pending_nodes.join(",")));
     }
 
     s.push_str("```");
@@ -526,7 +539,7 @@ mod tests {
             workflow: "wf".into(),
             instance_id: "id".into(),
             initial_input: None,
-            status: Status::Idle,
+            status: Status::Executing,
             current: "d".into(),
             current_name: "检测 审核".into(),
             current_invoke: "invoke-1".into(),
