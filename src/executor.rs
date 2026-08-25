@@ -383,10 +383,9 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState, inst_dir:
     if let Some(first) = path.first() {
         if let Some(start) = flow.nodes.iter().find(|n| n.node_type == "start") {
             for edge in &flow.edges {
-                if edge.source == start.id {
-                    if flow.node(&edge.target).map(|n| &n.data.label == &first.0).unwrap_or(false) {
-                        traversed_edges.insert((start.id.clone(), edge.target.clone()));
-                    }
+                if edge.source == start.id
+                    && flow.node(&edge.target).map(|n| n.data.label == *first.0).unwrap_or(false) {
+                    traversed_edges.insert((start.id.clone(), edge.target.clone()));
                 }
             }
         }
@@ -394,7 +393,7 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState, inst_dir:
     // End node edge if completed
     if state.status == crate::state::Status::Completed {
         if let Some(last) = path.last() {
-            if let Some(ln) = flow.nodes.iter().find(|n| &n.data.label == &last.0) {
+            if let Some(ln) = flow.nodes.iter().find(|n| n.data.label == *last.0) {
                 for edge in &flow.edges {
                     if edge.source == ln.id && flow.node(&edge.target).map(|n| n.node_type == "end").unwrap_or(false) {
                         traversed_edges.insert((ln.id.clone(), edge.target.clone()));
@@ -444,9 +443,7 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState, inst_dir:
     for node in &flow.nodes {
         if !visited.contains(&node.data.label) { continue; }
         let name = node_ref_name(flow, &node.id);
-        if node.node_type == "start" {
-            done_nodes.push(name);
-        } else if node.node_type == "end" && state.status == crate::state::Status::Completed {
+        if node.node_type == "start" || (node.node_type == "end" && state.status == crate::state::Status::Completed) {
             done_nodes.push(name);
         } else if state.current_name == node.data.label && state.status != crate::state::Status::Completed {
             current_nodes.push(name);
