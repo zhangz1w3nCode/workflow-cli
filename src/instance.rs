@@ -39,7 +39,7 @@ pub fn create(root: &Path, workflow: &str, instance_id: &str, input: Option<&str
         limits,
     };
 
-    let mermaid = crate::executor::render_mermaid(&flow, &state);
+    let mermaid = crate::executor::render_mermaid(&flow, &state, &inst_dir);
     let pf = ProcessFile { state, mermaid, trace: Vec::new() };
     pf.write(&inst_dir.join("process.md"))?;
     let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "instance create".into(), node: None, invoke: None, status: None, branch: None });
