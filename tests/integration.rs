@@ -2108,8 +2108,12 @@ fn process_md_trace_derived_from_trace_jsonl() {
         .join("trace/trace.jsonl");
     let fake_entry =
         "{\"ts\":\"2026-01-01\",\"command\":\"next\",\"node\":\"DECOUPLED_TEST\",\"invoke\":\"invoke-decoupled\",\"status\":\"active\"}\n";
-    std::fs::OpenOptions::new().append(true).open(&trace_path).unwrap()
-        .write_all(fake_entry.as_bytes()).unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&trace_path)
+        .unwrap()
+        .write_all(fake_entry.as_bytes())
+        .unwrap();
 
     let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
     assert!(ok, "artifact list after jsonl modify failed: {err}");
@@ -2121,7 +2125,9 @@ fn process_md_trace_derived_from_trace_jsonl() {
     run(root, &["next", "--instance", id]);
 
     let process_md = std::fs::read_to_string(
-        root.join(".workflows/wf/instance").join(id).join("process.md"),
+        root.join(".workflows/wf/instance")
+            .join(id)
+            .join("process.md"),
     )
     .unwrap();
     assert!(
