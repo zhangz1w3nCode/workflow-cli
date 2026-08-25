@@ -1,5 +1,5 @@
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -25,7 +25,11 @@ impl Status {
 
 pub fn gen_invoke_id() -> String {
     let now = chrono::Local::now();
-    format!("invoke-{}-{:03}", now.format("%Y%m%d-%H%M%S"), now.timestamp_subsec_millis())
+    format!(
+        "invoke-{}-{:03}",
+        now.format("%Y%m%d-%H%M%S"),
+        now.timestamp_subsec_millis()
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -37,7 +41,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { max_steps: 100, max_loop: 10, max_retry: 2 }
+        Limits {
+            max_steps: 100,
+            max_loop: 10,
+            max_retry: 2,
+        }
     }
 }
 
@@ -63,7 +71,7 @@ pub struct ProcessState {
     pub limits: Limits,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceEvent {
     pub status: String,
     pub node: String,
@@ -99,23 +107,41 @@ impl ProcessFile {
         let (mermaid, trace_text) = match body.find(marker) {
             Some(idx) => {
                 let raw = body[..idx].trim().to_string();
-                let after = body[idx + marker.len()..].trim_start_matches('\n').to_string();
-                let mermaid = raw.strip_prefix("## 流程进度").map(|s| s.trim().to_string()).unwrap_or(raw);
+                let after = body[idx + marker.len()..]
+                    .trim_start_matches('\n')
+                    .to_string();
+                let mermaid = raw
+                    .strip_prefix("## 流程进度")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or(raw);
                 (mermaid, after)
             }
             None => (String::new(), body),
         };
         let state: ProcessState = serde_yaml::from_str(&yaml_str)
             .map_err(|e| format!("解析 process.md frontmatter 失败: {e}"))?;
-        let trace = parse_trace_table(&trace_text);
-        Ok(ProcessFile { state, mermaid, trace })
+        let mut trace = parse_trace_table(&trace_text);
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let log_entries = read_trace_jsonl(&trace_jsonl_path(parent));
+        let jsonl_trace = reconstruct_trace_from_jsonl(&log_entries);
+        if !jsonl_trace.is_empty() {
+            merge_trace(&mut trace, jsonl_trace);
+        }
+        Ok(ProcessFile {
+            state,
+            mermaid,
+            trace,
+        })
     }
 
     pub fn write(&self, path: &Path) -> Result<(), String> {
-        let yaml = serde_yaml::to_string(&self.state)
-            .map_err(|e| format!("序列化状态失败: {e}"))?;
+        let yaml =
+            serde_yaml::to_string(&self.state).map_err(|e| format!("序列化状态失败: {e}"))?;
         let trace_table = render_trace_table(&self.trace);
-        let body = format!("## 流程进度\n\n{}\n\n## 执行轨迹\n\n{}", self.mermaid, trace_table);
+        let body = format!(
+            "## 流程进度\n\n{}\n\n## 执行轨迹\n\n{}",
+            self.mermaid, trace_table
+        );
         let content = format!("---\n{yaml}---\n\n{body}\n");
         let tmp = path.with_extension("tmp");
         std::fs::write(&tmp, content).map_err(|e| format!("写入失败: {e}"))?;
@@ -124,13 +150,17 @@ impl ProcessFile {
     }
 
     pub fn append_trace(&mut self, status: &str, node: &str, invoke: &str, branch: Option<&str>) {
-        if let Some(e) = self.trace.iter_mut().find(|e| e.node == node && e.invoke == invoke) {
+        if let Some(e) = self
+            .trace
+            .iter_mut()
+            .find(|e| e.node == node && e.invoke == invoke)
+        {
             e.status = status.to_string();
             if branch.is_some() {
                 e.branch = branch.map(|s| s.to_string());
             }
         } else {
-            let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+            let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             self.trace.push(TraceEvent {
                 status: status.to_string(),
                 node: node.to_string(),
@@ -142,14 +172,116 @@ impl ProcessFile {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TraceLogEntry {
+    pub ts: String,
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invoke: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+pub fn trace_jsonl_path(inst_dir: &Path) -> PathBuf {
+    inst_dir.join("trace").join("trace.jsonl")
+}
+
+pub fn write_trace_log(path: &Path, entry: &TraceLogEntry) -> Result<(), String> {
+    use std::io::Write;
+    let line = serde_json::to_string(entry).map_err(|e| format!("序列化 trace 日志失败: {e}"))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("打开 trace.jsonl 失败: {e}"))?;
+    file.write_all(format!("{line}\n").as_bytes())
+        .map_err(|e| format!("写入 trace.jsonl 失败: {e}"))?;
+    Ok(())
+}
+
+pub fn log_trace(inst_dir: &Path, entry: TraceLogEntry) -> Result<(), String> {
+    let trace_dir = inst_dir.join("trace");
+    std::fs::create_dir_all(&trace_dir).map_err(|e| format!("创建 trace 目录失败: {e}"))?;
+    write_trace_log(&trace_dir.join("trace.jsonl"), &entry)
+}
+
+pub fn read_trace_jsonl(path: &Path) -> Vec<TraceLogEntry> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter(|l| !l.is_empty())
+        .filter_map(|l| serde_json::from_str::<TraceLogEntry>(l).ok())
+        .collect()
+}
+
+pub fn reconstruct_trace_from_jsonl(entries: &[TraceLogEntry]) -> Vec<TraceEvent> {
+    let mut trace: Vec<TraceEvent> = Vec::new();
+    for entry in entries {
+        if let (Some(node), Some(invoke), Some(status)) =
+            (&entry.node, &entry.invoke, &entry.status)
+        {
+            if let Some(e) = trace
+                .iter_mut()
+                .find(|e| &e.node == node && &e.invoke == invoke)
+            {
+                e.status = status.clone();
+                if entry.branch.is_some() {
+                    e.branch = entry.branch.clone();
+                }
+            } else {
+                trace.push(TraceEvent {
+                    status: status.clone(),
+                    node: node.clone(),
+                    invoke: invoke.clone(),
+                    branch: entry.branch.clone(),
+                    time: entry.ts.clone(),
+                });
+            }
+        }
+    }
+    trace
+}
+
+pub fn merge_trace(base: &mut Vec<TraceEvent>, updates: Vec<TraceEvent>) {
+    for event in updates {
+        if let Some(e) = base
+            .iter_mut()
+            .find(|e| e.node == event.node && e.invoke == event.invoke)
+        {
+            e.status = event.status;
+            if event.branch.is_some() {
+                e.branch = event.branch;
+            }
+        } else {
+            base.push(event);
+        }
+    }
+}
+
 fn render_trace_table(trace: &[TraceEvent]) -> String {
-    let mut s = String::from("| # | 状态 | 节点 | 节点执行ID | 执行时间 |\n|---|------|------|-----------|---------|\n");
+    let mut s = String::from(
+        "| # | 状态 | 节点 | 节点执行ID | 执行时间 |\n|---|------|------|-----------|---------|\n",
+    );
     for (i, e) in trace.iter().enumerate() {
         let node_display = match &e.branch {
             Some(b) => format!("{}({})", e.node, b),
             None => e.node.clone(),
         };
-        s.push_str(&format!("| {} | {} | {} | {} | {} |\n", i + 1, e.status, node_display, e.invoke, e.time));
+        s.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n",
+            i + 1,
+            e.status,
+            node_display,
+            e.invoke,
+            e.time
+        ));
     }
     s
 }
@@ -219,7 +351,11 @@ mod tests {
     fn roundtrip_write_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("process.md");
-        let mut pf = ProcessFile { state: sample_state(), mermaid: "```mermaid\nflowchart TD\n```".into(), trace: Vec::new() };
+        let mut pf = ProcessFile {
+            state: sample_state(),
+            mermaid: "```mermaid\nflowchart TD\n```".into(),
+            trace: Vec::new(),
+        };
         pf.append_trace("completed", "任务理解", "invoke-1", None);
         pf.write(&path).unwrap();
 
@@ -249,5 +385,137 @@ mod tests {
         assert_eq!(Status::AwaitingChoice.as_str(), "awaiting_choice");
         assert_eq!(Status::Completed.as_str(), "completed");
         assert_eq!(Status::Aborted.as_str(), "aborted");
+    }
+    #[test]
+    fn trace_log_entry_serialization() {
+        let entry = TraceLogEntry {
+            ts: "2026-08-22-19-50-04".into(),
+            command: "next".into(),
+            node: Some("任务理解".into()),
+            invoke: Some("invoke-1".into()),
+            status: Some("active".into()),
+            branch: None,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"command\":\"next\""));
+        assert!(json.contains("\"node\":\"任务理解\""));
+        assert!(!json.contains("branch"));
+
+        let entry2 = TraceLogEntry {
+            ts: "2026-08-22-19-50-04".into(),
+            command: "status".into(),
+            node: None,
+            invoke: None,
+            status: None,
+            branch: None,
+        };
+        let json2 = serde_json::to_string(&entry2).unwrap();
+        assert!(json2.contains("\"command\":\"status\""));
+        assert!(!json2.contains("node"));
+        assert!(!json2.contains("invoke"));
+    }
+
+    #[test]
+    fn trace_log_write_read_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trace.jsonl");
+
+        let entry1 = TraceLogEntry {
+            ts: "2026-08-22-19-50-04".into(),
+            command: "next".into(),
+            node: Some("任务理解".into()),
+            invoke: Some("invoke-1".into()),
+            status: Some("active".into()),
+            branch: None,
+        };
+        let entry2 = TraceLogEntry {
+            ts: "2026-08-22-19-50-05".into(),
+            command: "complete".into(),
+            node: Some("任务理解".into()),
+            invoke: Some("invoke-1".into()),
+            status: Some("completed".into()),
+            branch: None,
+        };
+
+        write_trace_log(&path, &entry1).unwrap();
+        write_trace_log(&path, &entry2).unwrap();
+
+        let entries = read_trace_jsonl(&path);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].command, "next");
+        assert_eq!(entries[0].status.as_deref(), Some("active"));
+        assert_eq!(entries[1].command, "complete");
+        assert_eq!(entries[1].status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn reconstruct_trace_upsert_semantics() {
+        let entries = vec![
+            TraceLogEntry {
+                ts: "2026-08-22-19-50-04".into(),
+                command: "next".into(),
+                node: Some("任务理解".into()),
+                invoke: Some("invoke-1".into()),
+                status: Some("active".into()),
+                branch: None,
+            },
+            TraceLogEntry {
+                ts: "2026-08-22-19-50-05".into(),
+                command: "complete".into(),
+                node: Some("任务理解".into()),
+                invoke: Some("invoke-1".into()),
+                status: Some("completed".into()),
+                branch: None,
+            },
+            TraceLogEntry {
+                ts: "2026-08-22-19-50-06".into(),
+                command: "status".into(),
+                node: None,
+                invoke: None,
+                status: None,
+                branch: None,
+            },
+            TraceLogEntry {
+                ts: "2026-08-22-19-50-07".into(),
+                command: "next".into(),
+                node: Some("任务调研".into()),
+                invoke: Some("invoke-2".into()),
+                status: Some("active".into()),
+                branch: None,
+            },
+        ];
+
+        let trace = reconstruct_trace_from_jsonl(&entries);
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0].node, "任务理解");
+        assert_eq!(trace[0].status, "completed");
+        assert_eq!(trace[0].time, "2026-08-22-19-50-04");
+        assert_eq!(trace[1].node, "任务调研");
+        assert_eq!(trace[1].status, "active");
+    }
+
+    #[test]
+    fn reconstruct_trace_with_branch() {
+        let entries = vec![TraceLogEntry {
+            ts: "2026-08-22-19-50-04".into(),
+            command: "choose".into(),
+            node: Some("审核".into()),
+            invoke: Some("invoke-1".into()),
+            status: Some("completed".into()),
+            branch: Some("没问题".into()),
+        }];
+
+        let trace = reconstruct_trace_from_jsonl(&entries);
+        assert_eq!(trace.len(), 1);
+        assert_eq!(trace[0].branch.as_deref(), Some("没问题"));
+    }
+
+    #[test]
+    fn read_trace_jsonl_io_error_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().join("not_a_file");
+        std::fs::create_dir_all(&dir_path).unwrap();
+        let result = read_trace_jsonl(&dir_path);
+        assert!(result.is_empty());
     }
 }

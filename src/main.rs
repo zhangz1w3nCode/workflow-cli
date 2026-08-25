@@ -29,7 +29,10 @@ fn run() -> Result<(), String> {
         }
         Command::Instance(args) => {
             if args.target == "list" {
-                println!("{}", executor::list_instances(&root, args.workflow.as_deref())?);
+                println!(
+                    "{}",
+                    executor::list_instances(&root, args.workflow.as_deref())?
+                );
             } else {
                 let id = args.instance.unwrap_or_else(gen_id);
                 let limits = Limits {
@@ -46,59 +49,115 @@ fn run() -> Result<(), String> {
             print!("{}", executor::next(&root, &wf, &id, json)?);
             println!();
         }
-        Command::Complete { instance: id, output, output_file } => {
+        Command::Complete {
+            instance: id,
+            output,
+            output_file,
+        } => {
             let wf = instance_workflow(&root, &id)?;
             let content = read_output(output, output_file)?;
             println!("{}", executor::complete(&root, &wf, &id, &content)?);
         }
-        Command::Fail { instance: id, reason } => {
+        Command::Fail {
+            instance: id,
+            reason,
+        } => {
             let wf = instance_workflow(&root, &id)?;
             println!("{}", executor::fail(&root, &wf, &id, &reason)?);
         }
-        Command::Choose { instance: id, branch, reason } => {
+        Command::Choose {
+            instance: id,
+            branch,
+            reason,
+        } => {
             let wf = instance_workflow(&root, &id)?;
-            println!("{}", executor::choose(&root, &wf, &id, &branch, reason.as_deref())?);
+            println!(
+                "{}",
+                executor::choose(&root, &wf, &id, &branch, reason.as_deref())?
+            );
         }
         Command::Status { instance: id, json } => {
             let wf = instance_workflow(&root, &id)?;
+            log_trace_command(&root, &wf, &id, "status");
             println!("{}", executor::status(&root, &wf, &id, json)?);
         }
-        Command::Artifact(args) => {
-            match args.action {
-                cli::ArtifactAction::List { instance: id, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::list(&root, &wf, &id, json)?);
-                }
-                cli::ArtifactAction::View { instance: id, node, invoke, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::view(&root, &wf, &id, node.as_deref(), invoke.as_deref(), json)?);
-                }
-                cli::ArtifactAction::Search { instance: id, keyword, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::search(&root, &wf, &id, &keyword, json)?);
-                }
-                cli::ArtifactAction::Timeline { instance: id, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::timeline(&root, &wf, &id, json)?);
-                }
-                cli::ArtifactAction::Diff { instance: id, node, context, full, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::diff(&root, &wf, &id, &node, json, context, full)?);
-                }
+        Command::Artifact(args) => match args.action {
+            cli::ArtifactAction::List { instance: id, json } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "artifact list");
+                println!("{}", artifact_query::list(&root, &wf, &id, json)?);
             }
-        }
-        Command::Context(args) => {
-            match args.action {
-                cli::ContextAction::Set { instance: id, topic, content } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::context_set(&root, &wf, &id, &topic, &content)?);
-                }
-                cli::ContextAction::Get { instance: id, json } => {
-                    let wf = instance_workflow(&root, &id)?;
-                    println!("{}", artifact_query::context_get(&root, &wf, &id, json)?);
-                }
+            cli::ArtifactAction::View {
+                instance: id,
+                node,
+                invoke,
+                json,
+            } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "artifact view");
+                println!(
+                    "{}",
+                    artifact_query::view(
+                        &root,
+                        &wf,
+                        &id,
+                        node.as_deref(),
+                        invoke.as_deref(),
+                        json
+                    )?
+                );
             }
-        }
+            cli::ArtifactAction::Search {
+                instance: id,
+                keyword,
+                json,
+            } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "artifact search");
+                println!(
+                    "{}",
+                    artifact_query::search(&root, &wf, &id, &keyword, json)?
+                );
+            }
+            cli::ArtifactAction::Timeline { instance: id, json } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "artifact timeline");
+                println!("{}", artifact_query::timeline(&root, &wf, &id, json)?);
+            }
+            cli::ArtifactAction::Diff {
+                instance: id,
+                node,
+                context,
+                full,
+                json,
+            } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "artifact diff");
+                println!(
+                    "{}",
+                    artifact_query::diff(&root, &wf, &id, &node, json, context, full)?
+                );
+            }
+        },
+        Command::Context(args) => match args.action {
+            cli::ContextAction::Set {
+                instance: id,
+                topic,
+                content,
+            } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "context set");
+                println!(
+                    "{}",
+                    artifact_query::context_set(&root, &wf, &id, &topic, &content)?
+                );
+            }
+            cli::ContextAction::Get { instance: id, json } => {
+                let wf = instance_workflow(&root, &id)?;
+                log_trace_command(&root, &wf, &id, "context get");
+                println!("{}", artifact_query::context_get(&root, &wf, &id, json)?);
+            }
+        },
     }
     Ok(())
 }
@@ -128,13 +187,24 @@ fn gen_id() -> String {
 
 fn instance_workflow(root: &std::path::Path, instance_id: &str) -> Result<String, String> {
     use walkdir::WalkDir;
-    for entry in WalkDir::new(root.join(".workflows")).max_depth(3).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(root.join(".workflows"))
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let p = entry.path();
         if p.is_dir()
             && p.file_name().and_then(|n| n.to_str()) == Some(instance_id)
-            && p.parent().and_then(|x| x.file_name().and_then(|n| n.to_str())) == Some("instance") {
-            return p.parent().and_then(|x| x.parent()).and_then(|x| x.file_name())
-                .and_then(|n| n.to_str()).map(|s| s.to_string())
+            && p.parent()
+                .and_then(|x| x.file_name().and_then(|n| n.to_str()))
+                == Some("instance")
+        {
+            return p
+                .parent()
+                .and_then(|x| x.parent())
+                .and_then(|x| x.file_name())
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
                 .ok_or_else(|| "无法确定工作流名".into());
         }
     }
@@ -150,6 +220,27 @@ fn read_output(output: Option<String>, output_file: Option<String>) -> Result<St
     }
     use std::io::Read;
     let mut buf = String::new();
-    std::io::stdin().read_to_string(&mut buf).map_err(|e| format!("读取 stdin 失败: {e}"))?;
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .map_err(|e| format!("读取 stdin 失败: {e}"))?;
     Ok(buf)
+}
+
+fn log_trace_command(root: &std::path::Path, workflow: &str, instance_id: &str, command: &str) {
+    let inst_dir = root
+        .join(".workflows")
+        .join(workflow)
+        .join("instance")
+        .join(instance_id);
+    let _ = state::log_trace(
+        &inst_dir,
+        state::TraceLogEntry {
+            ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            command: command.into(),
+            node: None,
+            invoke: None,
+            status: None,
+            branch: None,
+        },
+    );
 }

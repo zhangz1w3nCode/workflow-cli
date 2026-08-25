@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -1713,4 +1714,424 @@ fn view_empty_error_md() {
     );
     assert!(ok, "view empty error failed: {err}");
     assert!(out.contains("null"), "空 error.md content 应为 null: {out}");
+}
+
+#[test]
+fn trace_jsonl_created_on_instance_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    assert!(
+        trace_path.exists(),
+        "trace.jsonl should exist after instance creation"
+    );
+
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+    assert!(
+        content.contains("\"command\":\"instance create\""),
+        "trace.jsonl should contain instance create entry: {content}"
+    );
+}
+
+#[test]
+fn trace_jsonl_records_workflow_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+    let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
+
+    assert!(
+        lines.len() >= 3,
+        "trace.jsonl should have at least 3 entries, got {}: {content}",
+        lines.len()
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"command\":\"instance create\"")),
+        "should have instance create"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"command\":\"next\"") && l.contains("\"status\":\"active\"")),
+        "should have next active"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"command\":\"complete\"")
+                && l.contains("\"status\":\"completed\"")),
+        "should have complete completed"
+    );
+}
+
+#[test]
+fn trace_jsonl_records_readonly_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["status", "--instance", id]);
+    run(root, &["artifact", "list", "--instance", id]);
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+
+    assert!(
+        content.contains("\"command\":\"status\""),
+        "should have status command: {content}"
+    );
+    assert!(
+        content.contains("\"command\":\"artifact list\""),
+        "should have artifact list command: {content}"
+    );
+}
+
+#[test]
+fn trace_jsonl_records_choose_with_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "其他"]);
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+
+    assert!(
+        content.contains("\"command\":\"choose\""),
+        "should have choose command: {content}"
+    );
+    assert!(
+        content.contains("\"branch\":\"其他\""),
+        "should have branch info: {content}"
+    );
+}
+
+#[test]
+fn trace_jsonl_records_fail_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["fail", "--instance", id, "--reason", "执行失败原因"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+
+    assert!(
+        content.contains("\"command\":\"fail\"") && content.contains("\"status\":\"failed\""),
+        "should have fail command with failed status: {content}"
+    );
+}
+
+#[test]
+fn artifact_list_reads_from_trace_jsonl() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物内容"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物内容"],
+    );
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list failed: {err}");
+    assert!(
+        out.contains("任务理解"),
+        "should contain node 任务理解: {out}"
+    );
+    assert!(
+        out.contains("任务调研"),
+        "should contain node 任务调研: {out}"
+    );
+    assert!(
+        out.contains("completed"),
+        "should contain completed status: {out}"
+    );
+    assert!(out.contains("detail"), "should contain detail type: {out}");
+}
+
+#[test]
+fn artifact_list_fallback_without_trace_jsonl() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物内容"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物内容"],
+    );
+
+    let trace_dir = root.join(".workflows/wf/instance").join(id).join("trace");
+    std::fs::remove_dir_all(&trace_dir).unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list fallback failed: {err}");
+    assert!(
+        out.contains("任务理解"),
+        "should contain node 任务理解 (from process.md fallback): {out}"
+    );
+    assert!(
+        out.contains("任务调研"),
+        "should contain node 任务调研 (from process.md fallback): {out}"
+    );
+    assert!(
+        out.contains("completed"),
+        "should contain completed status: {out}"
+    );
+}
+
+#[test]
+fn trace_jsonl_end_node_completed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(root, &["choose", "--instance", id, "--branch", "没问题"]);
+    run(root, &["next", "--instance", id]);
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let content = std::fs::read_to_string(&trace_path).unwrap();
+
+    assert!(
+        content.contains("\"command\":\"next\"") && content.contains("\"status\":\"completed\""),
+        "should have next completed (end node): {content}"
+    );
+    assert!(
+        content.contains("\"invoke\":\"-\""),
+        "should have invoke dash for end node: {content}"
+    );
+}
+
+#[test]
+fn trace_jsonl_readonly_only_falls_back_to_process_md() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    std::fs::write(
+        &trace_path,
+        "{\"ts\":\"2026-08-22-20-00-00\",\"command\":\"status\"}\n",
+    )
+    .unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list with readonly-only jsonl failed: {err}");
+    assert!(
+        out.contains("任务理解"),
+        "should contain node 任务理解 (fallback when jsonl has no workflow entries): {out}"
+    );
+    assert!(
+        out.contains("任务调研"),
+        "should contain node 任务调研 (fallback when jsonl has no workflow entries): {out}"
+    );
+}
+
+#[test]
+fn trace_jsonl_partial_history_merges_with_process_md() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "调研产物"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let partial = "{\"ts\":\"2026-08-22-20-00-00\",\"command\":\"next\",\"node\":\"任务理解\",\"invoke\":\"invoke-partial\",\"status\":\"active\"}\n";
+    std::fs::write(&trace_path, partial).unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list with partial jsonl failed: {err}");
+    assert!(
+        out.contains("任务理解"),
+        "should contain node 任务理解 (merged from process.md): {out}"
+    );
+    assert!(
+        out.contains("任务调研"),
+        "should contain node 任务调研 (merged from process.md): {out}"
+    );
+    assert!(
+        out.contains("invoke-partial"),
+        "should contain jsonl-only entry invoke-partial: {out}"
+    );
+}
+
+#[test]
+fn process_md_trace_derived_from_trace_jsonl() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup(root);
+
+    let (_, id, _) = run(root, &["instance", "wf"]);
+    let id = id.trim();
+
+    run(root, &["next", "--instance", id]);
+    run(
+        root,
+        &["complete", "--instance", id, "--output", "理解产物"],
+    );
+
+    let trace_path = root
+        .join(".workflows/wf/instance")
+        .join(id)
+        .join("trace/trace.jsonl");
+    let fake_entry =
+        "{\"ts\":\"2026-01-01\",\"command\":\"next\",\"node\":\"DECOUPLED_TEST\",\"invoke\":\"invoke-decoupled\",\"status\":\"active\"}\n";
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&trace_path)
+        .unwrap()
+        .write_all(fake_entry.as_bytes())
+        .unwrap();
+
+    let (ok, out, err) = run(root, &["artifact", "list", "--instance", id]);
+    assert!(ok, "artifact list after jsonl modify failed: {err}");
+    assert!(
+        out.contains("DECOUPLED_TEST"),
+        "artifact list should show DECOUPLED_TEST from trace.jsonl: {out}"
+    );
+
+    run(root, &["next", "--instance", id]);
+
+    let process_md = std::fs::read_to_string(
+        root.join(".workflows/wf/instance")
+            .join(id)
+            .join("process.md"),
+    )
+    .unwrap();
+    assert!(
+        process_md.contains("DECOUPLED_TEST"),
+        "process.md trace table should be derived from trace.jsonl (should contain DECOUPLED_TEST): {process_md}"
+    );
 }

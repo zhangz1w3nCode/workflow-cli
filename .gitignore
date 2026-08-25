@@ -1,5 +1,14 @@
 /target
 .DS_Store
-.pi/
 docs/
+.ocean/
+.pi/
 .worktrees/
+.tasks/
+.claude/
+.experiences/
+.timelines/
+.knowledges/
+.resources/
+.nodes/
+.workflows/

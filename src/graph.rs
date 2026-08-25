@@ -10,18 +10,25 @@ impl<'a> Graph<'a> {
     }
 
     fn outgoing(&self, node_id: &str) -> Vec<&'a Edge> {
-        self.flow.edges.iter().filter(|e| e.source == node_id).collect()
+        self.flow
+            .edges
+            .iter()
+            .filter(|e| e.source == node_id)
+            .collect()
     }
 
     pub fn next_node(&self, current_id: &str, branch_id: Option<&str>) -> Result<String, String> {
-        let node = self.flow.node(current_id)
+        let node = self
+            .flow
+            .node(current_id)
             .ok_or_else(|| format!("节点不存在: {current_id}"))?;
 
         match node.node_type.as_str() {
             "end" => Err("当前已是结束节点".to_string()),
             "decision" => {
                 let bid = branch_id.ok_or_else(|| "decision 节点需要分支选择".to_string())?;
-                self.outgoing(current_id).iter()
+                self.outgoing(current_id)
+                    .iter()
                     .find(|e| e.branch_id.as_deref() == Some(bid))
                     .map(|e| e.target.clone())
                     .ok_or_else(|| format!("分支 {bid} 不存在"))
@@ -48,7 +55,8 @@ impl<'a> Graph<'a> {
     }
 
     pub fn branch_names(&self, decision_id: &str) -> Vec<String> {
-        self.flow.node(decision_id)
+        self.flow
+            .node(decision_id)
             .map(|n| n.data.branches.iter().map(|b| b.name.clone()).collect())
             .unwrap_or_default()
     }
@@ -60,7 +68,8 @@ mod tests {
     use crate::model::Flow;
 
     fn flow() -> Flow {
-        serde_json::from_str(r#"{
+        serde_json::from_str(
+            r#"{
           "nodes": [
             {"id":"start","type":"start","data":{"label":"开始"}},
             {"id":"end","type":"end","data":{"label":"结束"}},
@@ -76,7 +85,9 @@ mod tests {
             {"id":"e3","source":"d","target":"end","branchId":"ok","type":"default"},
             {"id":"e4","source":"d","target":"a","branchId":"other","type":"default"}
           ]
-        }"#).unwrap()
+        }"#,
+        )
+        .unwrap()
     }
 
     #[test]
