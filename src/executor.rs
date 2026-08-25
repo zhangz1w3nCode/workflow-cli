@@ -416,9 +416,12 @@ pub fn render_mermaid(flow: &Flow, state: &crate::state::ProcessState, inst_dir:
     }
     s.push('\n');
 
-    // Render only edges that were actually traversed
+    // Render only edges that were actually traversed AND both endpoints are visited
     for edge in &flow.edges {
         if !traversed_edges.contains(&(edge.source.clone(), edge.target.clone())) { continue; }
+        let src_visited = flow.node(&edge.source).map(|n| visited.contains(&n.data.label)).unwrap_or(false);
+        let dst_visited = flow.node(&edge.target).map(|n| visited.contains(&n.data.label)).unwrap_or(false);
+        if !src_visited || !dst_visited { continue; }
         let src = node_ref_name(flow, &edge.source);
         let dst = node_ref_name(flow, &edge.target);
         match &edge.branch_id {
