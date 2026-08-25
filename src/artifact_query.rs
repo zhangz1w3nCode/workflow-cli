@@ -512,7 +512,7 @@ pub fn context_set(root: &Path, workflow: &str, instance_id: &str, topic: &str, 
     }
     let topic = topic.replace(['\n', '\r'], " ");
     let path = instance_dir(root, workflow, instance_id).join("context.md");
-    let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+    let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let entry = format!("## [{}] {}\n\n{}\n", time, topic, content);
 
     use std::io::Write;

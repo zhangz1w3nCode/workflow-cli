@@ -165,7 +165,7 @@ fn read_output(output: Option<String>, output_file: Option<String>) -> Result<St
 fn log_trace_command(root: &std::path::Path, workflow: &str, instance_id: &str, command: &str) {
     let inst_dir = root.join(".workflows").join(workflow).join("instance").join(instance_id);
     let _ = state::log_trace(&inst_dir, state::TraceLogEntry {
-        ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+        ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         command: command.into(),
         node: None,
         invoke: None,

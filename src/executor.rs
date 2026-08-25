@@ -27,7 +27,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
     if node.node_type == "end" {
         pf.state.status = Status::Completed;
         pf.append_trace("completed", &node.data.label, "-", None);
-        let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "next".into(), node: Some(node.data.label.clone()), invoke: Some("-".into()), status: Some("completed".into()), branch: None });
+        let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), command: "next".into(), node: Some(node.data.label.clone()), invoke: Some("-".into()), status: Some("completed".into()), branch: None });
         pf.mermaid = render_mermaid(&flow, &pf.state, &inst_dir);
         pf.write(&inst_dir.join("process.md"))?;
         return Ok("工作流已完成".into());
@@ -55,7 +55,7 @@ pub fn next(root: &Path, workflow: &str, instance_id: &str, json: bool) -> Resul
     };
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("active", &node.data.label, &invoke, None);
-    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "next".into(), node: Some(node.data.label.clone()), invoke: Some(invoke.clone()), status: Some("active".into()), branch: None });
+    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), command: "next".into(), node: Some(node.data.label.clone()), invoke: Some(invoke.clone()), status: Some("active".into()), branch: None });
     pf.mermaid = render_mermaid(&flow, &pf.state, &inst_dir);
     pf.write(&inst_dir.join("process.md"))?;
 
@@ -81,7 +81,7 @@ pub fn complete(root: &Path, workflow: &str, instance_id: &str, output: &str) ->
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("completed", &name, &invoke, None);
-    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "complete".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("completed".into()), branch: None });
+    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), command: "complete".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("completed".into()), branch: None });
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }
@@ -117,7 +117,7 @@ pub fn fail(root: &Path, workflow: &str, instance_id: &str, reason: &str) -> Res
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("failed", &name, &invoke, None);
-    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "fail".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("failed".into()), branch: None });
+    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), command: "fail".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("failed".into()), branch: None });
 
     pf.state.retry_count += 1;
     if let Err(msg) = crate::limits::check_retry_limit(&pf.state) {
@@ -162,7 +162,7 @@ pub fn choose(root: &Path, workflow: &str, instance_id: &str, branch: &str, reas
     let name = pf.state.current_name.clone();
     let invoke = pf.state.current_invoke.clone();
     pf.append_trace("completed", &name, &invoke, Some(branch));
-    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(), command: "choose".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("completed".into()), branch: Some(branch.to_string()) });
+    let _ = crate::state::log_trace(&inst_dir, crate::state::TraceLogEntry { ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), command: "choose".into(), node: Some(name.clone()), invoke: Some(invoke.clone()), status: Some("completed".into()), branch: Some(branch.to_string()) });
     if !pf.state.completed.contains(&pf.state.current_name) {
         pf.state.completed.push(pf.state.current_name.clone());
     }

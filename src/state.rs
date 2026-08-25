@@ -160,7 +160,7 @@ impl ProcessFile {
                 e.branch = branch.map(|s| s.to_string());
             }
         } else {
-            let time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+            let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             self.trace.push(TraceEvent {
                 status: status.to_string(),
                 node: node.to_string(),
