@@ -330,7 +330,7 @@ fn node_ref_name(flow: &Flow, id: &str) -> String {
     match flow.node(id) {
         Some(n) if n.node_type == "start" => "start_node".to_string(),
         Some(n) if n.node_type == "end" => "end_node".to_string(),
-        Some(n) => mermaid_id(&n.id),
+        Some(n) => mermaid_id(&n.data.label),
         None => mermaid_id(id),
     }
 }
@@ -603,7 +603,7 @@ mod tests {
             branch: None,
         }).unwrap();
         let mermaid = render_mermaid(&flow, &state, inst_dir);
-        assert!(mermaid.contains("d{检测 审核}"), "节点 ID 应为安全标识而非带空格的 label:\n{mermaid}");
+        assert!(mermaid.contains("检测_审核{检测 审核}"), "节点 ID 应为安全转义（空格→下划线）而非原始 label:\n{mermaid}");
         assert!(!mermaid.contains("检测 审核{检测 审核}"), "节点 ID 不应包含空格:\n{mermaid}");
     }
 
