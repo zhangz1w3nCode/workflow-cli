@@ -484,7 +484,7 @@ pub fn render_mermaid(
     // Read raw trace.jsonl to rebuild actual execution path
     let jsonl_path = crate::state::trace_jsonl_path(inst_dir);
     let log_entries = crate::state::read_trace_jsonl(&jsonl_path);
-    let mut traversed_edges: std::collections::HashSet<(String, String)> =
+    let mut traversed_edges: std::collections::HashSet<(String, String, Option<String>)> =
         std::collections::HashSet::new();
     // Build ordered path: (node_label, branch_option) from active entries
     let mut path: Vec<(String, Option<String>)> = Vec::new();
@@ -515,11 +515,11 @@ pub fn render_mermaid(
                             .find(|b| &b.id == bid)
                             .map(|b| b.name.clone());
                         if &ebn == branch {
-                            traversed_edges.insert((node.id.clone(), edge.target.clone()));
+                            traversed_edges.insert((node.id.clone(), edge.target.clone(), edge.branch_id.clone()));
                         }
                     }
                 } else {
-                    traversed_edges.insert((node.id.clone(), edge.target.clone()));
+                    traversed_edges.insert((node.id.clone(), edge.target.clone(), None));
                 }
             }
         }
@@ -534,7 +534,7 @@ pub fn render_mermaid(
                         .map(|n| n.data.label == *first.0)
                         .unwrap_or(false)
                 {
-                    traversed_edges.insert((start.id.clone(), edge.target.clone()));
+                    traversed_edges.insert((start.id.clone(), edge.target.clone(), None));
                 }
             }
         }
@@ -550,7 +550,7 @@ pub fn render_mermaid(
                             .map(|n| n.node_type == "end")
                             .unwrap_or(false)
                     {
-                        traversed_edges.insert((ln.id.clone(), edge.target.clone()));
+                        traversed_edges.insert((ln.id.clone(), edge.target.clone(), None));
                     }
                 }
             }
@@ -573,7 +573,7 @@ pub fn render_mermaid(
 
     // Render only edges that were actually traversed AND both endpoints are visited
     for edge in &flow.edges {
-        if !traversed_edges.contains(&(edge.source.clone(), edge.target.clone())) {
+        if !traversed_edges.contains(&(edge.source.clone(), edge.target.clone(), edge.branch_id.clone())) {
             continue;
         }
         let src_visited = flow
@@ -797,6 +797,80 @@ mod tests {
         assert!(
             !mermaid.contains("检测 审核{检测 审核}"),
             "节点 ID 不应包含空格:\n{mermaid}"
+        );
+    }
+
+    #[test]
+    fn mermaid_render_only_chosen_branch_when_multiple_branches_same_target() {
+        let flow: crate::model::Flow = serde_json::from_str(r#"{
+          "nodes": [
+            {"id":"start","type":"start","data":{"label":"开始"}},
+            {"id":"end","type":"end","data":{"label":"结束"}},
+            {"id":"b","type":"business","data":{"label":"任务","nodeRefPath":".nodes/任务.md"}},
+            {"id":"d","type":"decision","data":{"label":"判断","branches":[
+              {"id":"b1","name":"如果是1"},
+              {"id":"b2","name":"如果是2"},
+              {"id":"b3","name":"其他"}
+            ]}}
+          ],
+          "edges": [
+            {"id":"e1","source":"start","target":"d","type":"default"},
+            {"id":"e2","source":"d","target":"b","branchId":"b1","type":"default"},
+            {"id":"e3","source":"d","target":"b","branchId":"b2","type":"default"},
+            {"id":"e4","source":"d","target":"b","branchId":"b3","type":"default"},
+            {"id":"e5","source":"b","target":"end","type":"default"}
+          ]
+        }"#).unwrap();
+        let state = crate::state::ProcessState {
+            workflow: "wf".into(),
+            instance_id: "id".into(),
+            initial_input: None,
+            status: Status::Completed,
+            current: "end".into(),
+            current_name: "结束".into(),
+            current_invoke: "invoke-3".into(),
+            step: 3,
+            loop_count: 0,
+            retry_count: 0,
+            last_node: Some("任务".into()),
+            last_invoke: Some("invoke-2".into()),
+            completed: vec!["判断".into(), "任务".into()],
+            limits: Limits::default(),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let inst_dir = dir.path();
+        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
+            ts: "2026-01-01".into(), command: "next".into(),
+            node: Some("判断".into()), invoke: Some("invoke-1".into()),
+            status: Some("active".into()), branch: None,
+        }).unwrap();
+        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
+            ts: "2026-01-01".into(), command: "choose".into(),
+            node: Some("判断".into()), invoke: Some("invoke-1".into()),
+            status: Some("completed".into()), branch: Some("如果是1".into()),
+        }).unwrap();
+        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
+            ts: "2026-01-01".into(), command: "next".into(),
+            node: Some("任务".into()), invoke: Some("invoke-2".into()),
+            status: Some("active".into()), branch: None,
+        }).unwrap();
+        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
+            ts: "2026-01-01".into(), command: "complete".into(),
+            node: Some("任务".into()), invoke: Some("invoke-2".into()),
+            status: Some("completed".into()), branch: None,
+        }).unwrap();
+        let mermaid = render_mermaid(&flow, &state, inst_dir);
+        assert!(
+            mermaid.contains("判断 -->|如果是1| 任务"),
+            "选中分支应渲染:\n{mermaid}"
+        );
+        assert!(
+            !mermaid.contains("判断 -->|如果是2| 任务"),
+            "未选中的分支不应渲染:\n{mermaid}"
+        );
+        assert!(
+            !mermaid.contains("判断 -->|其他| 任务"),
+            "未选中的分支不应渲染:\n{mermaid}"
         );
     }
 
