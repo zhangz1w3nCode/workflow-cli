@@ -515,7 +515,11 @@ pub fn render_mermaid(
                             .find(|b| &b.id == bid)
                             .map(|b| b.name.clone());
                         if &ebn == branch {
-                            traversed_edges.insert((node.id.clone(), edge.target.clone(), edge.branch_id.clone()));
+                            traversed_edges.insert((
+                                node.id.clone(),
+                                edge.target.clone(),
+                                edge.branch_id.clone(),
+                            ));
                         }
                     }
                 } else {
@@ -573,7 +577,11 @@ pub fn render_mermaid(
 
     // Render only edges that were actually traversed AND both endpoints are visited
     for edge in &flow.edges {
-        if !traversed_edges.contains(&(edge.source.clone(), edge.target.clone(), edge.branch_id.clone())) {
+        if !traversed_edges.contains(&(
+            edge.source.clone(),
+            edge.target.clone(),
+            edge.branch_id.clone(),
+        )) {
             continue;
         }
         let src_visited = flow
@@ -802,7 +810,8 @@ mod tests {
 
     #[test]
     fn mermaid_render_only_chosen_branch_when_multiple_branches_same_target() {
-        let flow: crate::model::Flow = serde_json::from_str(r#"{
+        let flow: crate::model::Flow = serde_json::from_str(
+            r#"{
           "nodes": [
             {"id":"start","type":"start","data":{"label":"开始"}},
             {"id":"end","type":"end","data":{"label":"结束"}},
@@ -820,7 +829,9 @@ mod tests {
             {"id":"e4","source":"d","target":"b","branchId":"b3","type":"default"},
             {"id":"e5","source":"b","target":"end","type":"default"}
           ]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let state = crate::state::ProcessState {
             workflow: "wf".into(),
             instance_id: "id".into(),
@@ -839,26 +850,54 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let inst_dir = dir.path();
-        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
-            ts: "2026-01-01".into(), command: "next".into(),
-            node: Some("判断".into()), invoke: Some("invoke-1".into()),
-            status: Some("active".into()), branch: None,
-        }).unwrap();
-        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
-            ts: "2026-01-01".into(), command: "choose".into(),
-            node: Some("判断".into()), invoke: Some("invoke-1".into()),
-            status: Some("completed".into()), branch: Some("如果是1".into()),
-        }).unwrap();
-        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
-            ts: "2026-01-01".into(), command: "next".into(),
-            node: Some("任务".into()), invoke: Some("invoke-2".into()),
-            status: Some("active".into()), branch: None,
-        }).unwrap();
-        crate::state::log_trace(inst_dir, crate::state::TraceLogEntry {
-            ts: "2026-01-01".into(), command: "complete".into(),
-            node: Some("任务".into()), invoke: Some("invoke-2".into()),
-            status: Some("completed".into()), branch: None,
-        }).unwrap();
+        crate::state::log_trace(
+            inst_dir,
+            crate::state::TraceLogEntry {
+                ts: "2026-01-01".into(),
+                command: "next".into(),
+                node: Some("判断".into()),
+                invoke: Some("invoke-1".into()),
+                status: Some("active".into()),
+                branch: None,
+            },
+        )
+        .unwrap();
+        crate::state::log_trace(
+            inst_dir,
+            crate::state::TraceLogEntry {
+                ts: "2026-01-01".into(),
+                command: "choose".into(),
+                node: Some("判断".into()),
+                invoke: Some("invoke-1".into()),
+                status: Some("completed".into()),
+                branch: Some("如果是1".into()),
+            },
+        )
+        .unwrap();
+        crate::state::log_trace(
+            inst_dir,
+            crate::state::TraceLogEntry {
+                ts: "2026-01-01".into(),
+                command: "next".into(),
+                node: Some("任务".into()),
+                invoke: Some("invoke-2".into()),
+                status: Some("active".into()),
+                branch: None,
+            },
+        )
+        .unwrap();
+        crate::state::log_trace(
+            inst_dir,
+            crate::state::TraceLogEntry {
+                ts: "2026-01-01".into(),
+                command: "complete".into(),
+                node: Some("任务".into()),
+                invoke: Some("invoke-2".into()),
+                status: Some("completed".into()),
+                branch: None,
+            },
+        )
+        .unwrap();
         let mermaid = render_mermaid(&flow, &state, inst_dir);
         assert!(
             mermaid.contains("判断 -->|如果是1| 任务"),
