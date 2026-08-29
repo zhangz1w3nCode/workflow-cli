@@ -437,8 +437,22 @@ fn read_node_md(root: &Path, node: &crate::model::Node) -> String {
         return format!("节点 {} 缺少 nodeRefPath", node.data.label);
     }
     let full = root.join(ref_path);
-    std::fs::read_to_string(&full)
-        .unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()))
+    let raw = std::fs::read_to_string(&full)
+        .unwrap_or_else(|e| format!("节点文件缺失: {} ({e})", full.display()));
+    strip_frontmatter(&raw)
+}
+
+fn strip_frontmatter(content: &str) -> String {
+    let mut lines = content.lines();
+    if lines.next().map(|l| l.trim()) != Some("---") {
+        return content.to_string();
+    }
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            return lines.collect::<Vec<_>>().join("\n");
+        }
+    }
+    content.to_string()
 }
 
 /// Mermaid 节点 ID 不允许包含空格及多数特殊字符；把非 [字母/数字/_] 的字符统一替换为下划线，
@@ -677,6 +691,43 @@ mod tests {
         assert!(out.contains("- 理解任务"));
         let pf = ProcessFile::read(&root.join(".workflows/wf/instance/i1/process.md")).unwrap();
         assert_eq!(pf.state.status, Status::Executing);
+    }
+
+    #[test]
+    fn next_strips_frontmatter_from_node_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        setup(root);
+        std::fs::write(
+            root.join(".nodes/任务理解.md"),
+            "---\ntitle: 任务理解\norder: 1\n---\n# 任务\n- 理解任务\n",
+        )
+        .unwrap();
+        instance::create(root, "wf", "i1", None, Limits::default()).unwrap();
+        let out = next(root, "wf", "i1", false).unwrap();
+        assert!(!out.contains("title: 任务理解"));
+        assert!(!out.contains("order: 1"));
+        assert!(!out.starts_with("---"));
+        assert!(out.contains("# 任务"));
+        assert!(out.contains("- 理解任务"));
+    }
+
+    #[test]
+    fn strip_frontmatter_handles_various_cases() {
+        let with_fm = "---\ntitle: Test\n---\n# Hello\n- item\n";
+        assert_eq!(strip_frontmatter(with_fm), "# Hello\n- item");
+
+        let without_fm = "# Title\n- item\n";
+        assert_eq!(strip_frontmatter(without_fm), "# Title\n- item\n");
+
+        let empty_fm = "---\n---\nbody\n";
+        assert_eq!(strip_frontmatter(empty_fm), "body");
+
+        let no_closing = "---\ntitle: Test\nbody\n";
+        assert_eq!(strip_frontmatter(no_closing), "---\ntitle: Test\nbody\n");
+
+        let body_with_hr = "---\ntitle: Test\n---\n# Section\n\n---\n\nMore content\n";
+        assert_eq!(strip_frontmatter(body_with_hr), "# Section\n\n---\n\nMore content");
     }
 
     #[test]
