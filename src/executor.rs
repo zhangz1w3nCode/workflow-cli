@@ -725,6 +725,9 @@ mod tests {
 
         let no_closing = "---\ntitle: Test\nbody\n";
         assert_eq!(strip_frontmatter(no_closing), "---\ntitle: Test\nbody\n");
+
+        let body_with_hr = "---\ntitle: Test\n---\n# Section\n\n---\n\nMore content\n";
+        assert_eq!(strip_frontmatter(body_with_hr), "# Section\n\n---\n\nMore content");
     }
 
     #[test]
